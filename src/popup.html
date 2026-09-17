@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>选课助手</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+    body { width: 330px; margin: 0; background: #16181d; color: #e6e8ee; font-size: 12px; }
+    .hd { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #1d2027; border-bottom: 1px solid #2c3140; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+    .dot.on { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .dot.err { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .dot.warn { background: #f59e0b; }
+    .hd b { font-size: 12.5px; }
+    .hd .ver { color: #6b7280; font-size: 10px; margin-left: auto; }
+    .sec { padding: 8px 10px; border-bottom: 1px solid #23272f; }
+    .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+    .kv .k { color: #8b93a3; }
+    .kv .v { color: #dfe3ea; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px 10px; }
+    button { background: #262b36; color: #dfe3ea; border: 1px solid #39404f; border-radius: 6px;
+      padding: 5px 8px; cursor: pointer; font-size: 11.5px; }
+    button:hover { background: #313847; }
+    button.p { background: #2563eb; border-color: #2563eb; color: #fff; }
+    button.p:hover { background: #1d4ed8; }
+    button.d { background: #7f1d1d; border-color: #991b1b; color: #fff; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .full { grid-column: 1 / -1; }
+    .log { max-height: 108px; overflow: auto; font-family: Consolas, Menlo, monospace; font-size: 10.5px; color: #cbd5e1; }
+    .log div { padding: 1px 0; border-bottom: 1px dashed #23272f; }
+    .lw { color: #fbbf24; } .le { color: #f87171; } .lo { color: #4ade80; } .ls { color: #93c5fd; }
+    .hint { color: #7c8598; font-size: 10.5px; line-height: 1.5; padding: 6px 10px; }
+    .warnbox { background: #43220f; border: 1px solid #92400e; color: #fed7aa; border-radius: 6px;
+      padding: 6px 8px; margin: 8px 10px; font-size: 11px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="hd"><span class="dot" id="dot"></span><b>选课助手</b><span class="ver">v0.1.0</span></div>
+  <div id="warn"></div>
+  <div class="sec">
+    <div class="kv"><span class="k">站点</span><span class="v" id="host">-</span></div>
+    <div class="kv"><span class="k">状态</span><span class="v" id="statusText">-</span></div>
+    <div class="kv"><span class="k">登录态</span><span class="v" id="auth">-</span></div>
+    <div class="kv"><span class="k">目标 / 已成功</span><span class="v" id="targets">-</span></div>
+    <div class="kv"><span class="k">抓包 / 提交次数</span><span class="v" id="counts">-</span></div>
+  </div>
+  <div class="grid">
+    <button id="btnStart" class="p">启动抢课</button>
+    <button id="btnStop" class="d">停止</button>
+    <button id="btnPanel">显示/隐藏面板</button>
+    <button id="btnProbe">检测登录态</button>
+    <button id="btnMark">我刚登录了</button>
+    <button id="btnLogin">打开登录页</button>
+    <button id="btnWorker">小窗工作台</button>
+    <button id="btnTab">新标签页打开</button>
+    <button id="btnSite" class="full">把当前站点加入白名单</button>
+  </div>
+  <div class="sec" style="border:none;padding-top:0">
+    <div class="log" id="log"></div>
+  </div>
+  <div class="hint">提示：抢课期间请让「工作标签页」保持可见（用「小窗工作台」最稳），后台标签页会被浏览器降频。</div>
+  <script src="lib/config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

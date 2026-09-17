@@ -1,0 +1,11 @@
+# 统一换行符：仓库内一律 LF，避免 Windows 下 git 每次提交都刷一堆
+# "LF will be replaced by CRLF" 警告（也就不会被这些噪声淹没真正的告警）。
+* text=auto eol=lf
+
+# 二进制文件不要做换行转换
+*.png binary
+*.ico binary
+
+# 课表档案与抓包导出：不要做任何文本处理（它们可能很大）
+archives/*.json -text
+*.har -text

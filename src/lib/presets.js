@@ -1,0 +1,201 @@
+/* 内置预设：让「全新浏览器」也能安装即用 —— 不必再去别处找配置文件导入。
+ *
+ * 只包含「站点规则 + 提交/查询模板 + 判定规则 + 会话与 UI 设置」，
+ * **刻意不含 targets**（选课清单是每个人自己的）。
+ *
+ * 本文件由 tools/make-preset.mjs 从 kx-config-吉大研究生选课.json 生成，请勿手改；
+ * 配置有变动就重新生成：node tools/make-preset.mjs
+ */
+globalThis.KXPresets = {
+  'jlu-yjsxk': {
+    "v": 1,
+    "sites": [
+      "yjsxk.jlu.edu.cn"
+    ],
+    "worker": {
+      "autoOpen": true,
+      "url": "",
+      "urlRe": "xsxkapp/course\\.html",
+      "_note": "urlRe：引擎只允许在选课页上运行。防止自动继续在选课首页就把引擎启起来（首页没有课程列表 → UI 点击找不到按钮 → token 学不到 → 空转刷屏）。如果你们系统的选课页网址变了，改这个正则。"
+    },
+    "engine": {
+      "_note": "高速档：发包最小间隔 150ms（单独看最多 400/分钟）+ 每分钟上限 400 → 实际约 400/分钟。每轮并发 12 ≥ 目标数，保证一轮里每个目标都被提交一次（目标数超过 12 时靠轮转游标保证公平，不会饿死）。每个目标的频率 = 400 ÷ 目标数。想再快：把 minGapMs 和 maxReqPerMinute 一起调小/调大（minGapMs 下限 100ms，上限 3000/分钟）。",
+      "intervalMs": 300,
+      "jitterPct": 15,
+      "maxConcurrent": 12,
+      "submitOnHit": true,
+      "confirmBeforeSubmit": false,
+      "maxAttemptsPerTarget": 0,
+      "minGapMs": 150,
+      "maxReqPerMinute": 400,
+      "backoff": {
+        "onError": 2,
+        "maxMs": 30000
+      },
+      "stopOn": {
+        "captcha": true,
+        "logout": true,
+        "closed": true,
+        "error": false
+      },
+      "scheduleAt": "",
+      "keepPollingAfterSuccess": true,
+      "burstCap": 0,
+      "_burstNote": "burstCap = 令牌桶容量（一次最多突发多少个请求）。0 = 用并发数（匀速、突发小，推荐）。只有当你必须把标签页长期挂在后台时才调大（如 120）：Chrome 会把隐藏页面的定时器限到每分钟 1 次，循环每分钟只醒一次；调大桶容量可以\"醒一次就把攒下的额度发掉\"把速率补回来，代价是变成突发（风控更容易注意到）。",
+      "autoResolve": true,
+      "autoResolveEveryMs": 600000,
+      "_autoResolveNote": "autoResolve=true：轮询/全量列表里查不到某个目标时（教学班代码每年会变），自动用「课程名+教师+校区」模糊匹配当前列表把它找回。置信度高且唯一才自动改ID（存疑会提示你去档案页手工选），且每 autoResolveEveryMs 最多尝试一次，避免脏数据把目标改乱。",
+      "autoResolveMinScore": 0.6,
+      "autoResolveMinGap": 0.04,
+      "autoStopSameName": false,
+      "_resolveNote": "同名班策略（用户要求）：默认 **不自动收手**，同名教学班一直一起抢。理由：多抢一个只是去退一次课（可逆），而误停一个是丢掉课程（不可逆）；而\"是否抢到了\"的判定本身不完全可靠（曾把成功响应判成\"无法判定\"，白抢一小时）。模糊门槛相应放低：autoResolveMinScore=0.6、autoResolveMinGap=0.04。想省得退课，可把 autoStopSameName 设为 true —— 它只在「已选课程」列表（服务器权威）确认后才停同名的其它班。"
+    },
+    "query": {
+      "_note": "enabled=false = 盲发模式：不查余量，直接高频提交 choiceCourse.do，用 rules.full 判断「容量已满」。query.url 仍保留，仅供「登录态体检」每 5 分钟发一次（那是读接口，用来确认会话是否还活着）。想切回先查后抢：把 enabled 改成 true，并把 pageSize 调到能覆盖全部课程（如 200）。",
+      "enabled": false,
+      "url": "https://yjsxk.jlu.edu.cn/yjsxkapp/sys/xsxkapp/xsxkCourse/loadGxkCourseInfo.do?_={{ts}}",
+      "method": "POST",
+      "contentType": "form",
+      "headers": {
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      "body": "query_keyword=&query_kkyx=&query_kcfl=&query_kcbq=&query_xqdm=&query_skyydm=&query_sfct=&query_sfym=&query_gxrlsfym=&fixedAutoSubmitBug=&pageIndex=1&pageSize=60&sortField=&sortOrder=",
+      "via": "fetch",
+      "timeoutMs": 15000,
+      "parse": {
+        "type": "json",
+        "path": "datas",
+        "idField": "BJDM",
+        "remainField": "",
+        "capacityField": "KXRS",
+        "usedField": "DQRS",
+        "nameField": "KCMC",
+        "regex": "",
+        "idGroup": 1,
+        "remainGroup": 2
+      }
+    },
+    "submit": {
+      "url": "https://yjsxk.jlu.edu.cn/yjsxkapp/sys/xsxkapp/xsxkCourse/choiceCourse.do?_={{ts}}",
+      "method": "POST",
+      "contentType": "form",
+      "headers": {
+        "X-Requested-With": "XMLHttpRequest"
+      },
+      "body": "bjdm={{id}}&lx=1&csrfToken={{csrfToken}}",
+      "vars": {},
+      "pageVars": {
+        "csrfToken": {
+          "from": "auto",
+          "key": "csrfToken"
+        }
+      },
+      "requirePageVars": true,
+      "via": "fetch",
+      "timeoutMs": 15000,
+      "rules": {
+        "success": {
+          "type": "regex",
+          "value": "^(?!.*(失败|已满|错误|异常|无效|超时|未开放|请先登录|未登录)).+",
+          "_note": "宽松兜底：HTTP 200 且响应里没有明确的失败特征就算成功。因为 keepPollingAfterSuccess=true，误判成功只会多一条通知（我们继续抢），而误判失败会丢掉课程。"
+        },
+        "full": {
+          "type": "regex",
+          "value": "容量已满|人数已满|已满"
+        },
+        "dup": {
+          "type": "regex",
+          "value": "已选|已经选过|重复选"
+        },
+        "captcha": {
+          "type": "regex",
+          "value": "验证码|滑块|captcha|verify"
+        },
+        "logout": {
+          "type": "regex",
+          "value": "未登录|登录已失效|请先登录|重新登录|超时"
+        },
+        "closed": {
+          "type": "regex",
+          "value": "未开放|不在选课时间|选课已结束|已停止"
+        }
+      }
+    },
+    "targets": [],
+    "session": {
+      "keepAlive": {
+        "enabled": false,
+        "url": "",
+        "method": "GET",
+        "contentType": "raw",
+        "headers": {},
+        "body": "",
+        "intervalMs": 240000,
+        "timeoutMs": 10000,
+        "cacheBuster": true
+      },
+      "hardTimeoutMs": 600000,
+      "warnBeforeMs": 120000,
+      "autoOpenLoginBeforeMs": 0,
+      "probeEveryMs": 300000,
+      "recheckMs": 30000,
+      "loginAtStaleMs": 600000,
+      "loginFlowWindowMs": 1800000,
+      "autoResume": true,
+      "requireLoginBeforeSubmit": true,
+      "loginUrl": "https://yjsxk.jlu.edu.cn/yjsxkapp/sys/xsxkapp/index.html",
+      "logoutTextMarkers": {
+        "type": "regex",
+        "value": "未登录不能选课|请先登录|请重新登录|登录已过期|登录已超时|会话已失效|您已退出"
+      },
+      "probeFailStreak": 3,
+      "loginMarkers": {
+        "type": "regex",
+        "value": "name=[\"']password|请输入密码|统一身份认证|请先登录|登录已超时|重新登录|账号登录|用户登录|未登录不能选课"
+      },
+      "logoutStatus": [
+        401,
+        403
+      ],
+      "loginUrlRe": "/(login|sso|cas|auth)",
+      "loginMarkersOnRedirectOnly": true,
+      "_sessionNote": "掉线判定策略：① HTTP 401/403（主判据，实测本系统掉线就是这个）② 被重定向到登录页 ③ 页面可见文字命中（备用，需连续 2 次）。响应体内容判定已关闭（loginMarkersOnRedirectOnly=true）—— 因为瞬时服务端提示页会含「请重新登录」这类词，把活着的会话误判成掉线、白停引擎。",
+      "_autoOpenNote": "autoOpenLoginBeforeMs=0：**不再按推算值提前打开登录页**（推算值不可靠，提前开只会刷屏）。现在只在\"真的扫到掉线\"时打开：提交/体检返回 HTTP 401，或页面出现未登录文字。防重复：全局 3 分钟内最多打开一次（时间戳存在 storage，跨页面共享）；而且打开前会先找有没有已经开着的登录页 —— 有就直接切过去，绝不新开。"
+    },
+    "ui": {
+      "_note": "混合模式：平时用最快的 API 盲发；取不到 csrfToken 时让页面自己点一次「选课 → 确定」把 token 喂给插件（那次点击本身就是一次真实抢课尝试）。mode 可改 only（每次点击，最像真人但慢 50~150ms）或 off。",
+      "enabled": true,
+      "mode": "hybrid",
+      "selectText": "选课",
+      "confirmText": "确定",
+      "maxMs": 5000,
+      "stepMs": 60
+    },
+    "notify": {
+      "desktop": true,
+      "sound": true,
+      "webhook": ""
+    },
+    "debug": {
+      "collectorUrl": "",
+      "autoPush": false,
+      "pushLogs": false,
+      "autoPushEveryMs": 60000
+    },
+    "mine": {
+      "_note": "已选课程接口：用来**权威地**判断\"这门课我到底选上没有\"。插件会定期核对它：在里面的目标直接标成\"已选上\"（比解析提交响应可靠得多），顺带能发现\"名额已满但其实我已经在里面了\"。这也是退课前必须知道的信息（拿到 WID）。",
+      "url": "https://yjsxk.jlu.edu.cn/yjsxkapp/sys/xsxkapp/xsxkCourse/loadStdCourseInfo.do?_={{ts}}",
+      "method": "GET",
+      "path": "results",
+      "idField": "BJDM",
+      "nameField": "KCMC",
+      "teacherField": "RKJS",
+      "widField": "WID",
+      "dropAllowedField": "IS_SFYXTK",
+      "enrollModeField": "XKFS",
+      "checkEveryMs": 180000,
+      "timeoutMs": 15000
+    },
+    "_说明": "内置预设：吉林大学研究生选课（正方新版）。载入后只需自己添加要抢的教学班（余量页搜课 → 加监控），再点启动。"
+  }
+};

@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "选课助手 · KX Grabber",
+  "version": "0.1.0",
+  "description": "抓包学习真实选课请求 → 模板化模拟发包 → 监控余量与选课ID → 自动抢课。纯本地运行，不向任何服务器上传数据。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "选课助手",
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "src/lib/presets.js",
+        "src/lib/config.js",
+        "src/lib/rules.js",
+        "src/lib/export.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/bridge.js",
+        "archives/index.json",
+        "archives/*.json",
+        "kx-config-吉大研究生选课.json"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

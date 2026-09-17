@@ -1,0 +1,40 @@
+{
+  "name": "kx-grabber",
+  "version": "0.1.0",
+  "private": true,
+  "description": "选课助手 · KX Grabber —— Chrome MV3 选课插件（抓包学习 + 模拟发包 + 余量监控 + 自动抢课），原生 JS 零构建",
+  "license": "MIT",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "course-selection",
+    "automation",
+    "jlu"
+  ],
+  "scripts": {
+    "test": "node test/all.mjs",
+    "test:rules": "node test/rules.test.mjs",
+    "test:manifest": "node test/manifest.test.mjs",
+    "test:mock": "node test/mock.test.mjs",
+    "test:har2config": "node test/har2config.test.mjs",
+    "test:panel": "node test/panel.test.mjs",
+    "test:collector": "node test/collector.test.mjs",
+    "test:real-site": "node test/real-site.test.mjs",
+    "mock": "node mock/server.mjs",
+    "collector": "node tools/collector.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "har": "node tools/har2config.mjs",
+    "scan": "node tools/scan-secrets.mjs",
+    "preset": "node tools/make-preset.mjs",
+    "archive-index": "node tools/make-archive-index.mjs",
+    "prepare-publish": "node tools/prepare-publish.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

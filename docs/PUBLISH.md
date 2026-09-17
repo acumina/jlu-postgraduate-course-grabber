@@ -88,14 +88,12 @@ git push -u origin main
 
 ### 关于提交里的邮箱（推送前是最后一次能低成本改的机会）
 
-每个提交都会记录 `作者名 <邮箱>`，**push 之后任何人都能看到**。当前是：
+每个提交都会记录 `作者名 <邮箱>`，**push 之后任何人都能看到**。
+当前用的是你本地 git 配的邮箱（`git config user.email` 可以查看，本文件刻意不写出，
+免得把邮箱再抄一份到公开文档里）。
 
-```
-acumina <abc1648561300@gmail.com>
-```
-
-- 不介意公开 Gmail → 什么都不用做。
-- 想隐藏 → 用 GitHub 的 noreply 地址（在 GitHub → Settings → Emails 里能看到，
+- 不介意公开 → 什么都不用做。
+- 想隐藏 → 用 GitHub 的 noreply 地址（GitHub → Settings → Emails 里能看到，
   形如 `12345678+acumina@users.noreply.github.com`）：
 
 ```bash

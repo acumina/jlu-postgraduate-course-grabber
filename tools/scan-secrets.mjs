@@ -128,7 +128,10 @@ for (const file of files) {
           });
           if (!bad.length) continue;
         }
-        if (p.id === '邮箱' && /@(example|test|localhost|127\.0\.0\.1)/i.test(hit)) continue;
+        if (p.id === '邮箱') {
+          if (/^git@/i.test(hit)) continue;   // git@github.com 是 SSH 地址，不是邮箱
+          if (/@(example|test|localhost|127\.0\.0\.1|users\.noreply\.github\.com)/i.test(hit)) continue;
+        }
         // 严重级别：示例路径下的"学号形状"数字只提示；其它情况按 pattern 定级
         let sev = p.sev;
         if (sev === 'auto') sev = isExamplePath ? 'low' : 'high';

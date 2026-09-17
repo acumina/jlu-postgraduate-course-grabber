@@ -57,16 +57,59 @@ node tools/make-archive-index.mjs    # 重新生成课表档案索引
 > 不需要 `All rights reserved`（那是另一套模板的写法）。
 > MIT 要求再分发时保留这份 LICENSE 与版权声明 —— 这正是你想要的：别人能用，但要署名。
 
-## 五、初始化并推送
+## 五、创建仓库并推送
+
+**本地已经准备好了**：git 身份已配（`acumina <邮箱>`）、SSH 已能连上 GitHub
+（`ssh -T git@github.com` 会回 `Hi acumina!`）、分支已经是 `main`、remote 还没配。
+
+### 第一步：在 GitHub 上创建**空**仓库
+
+打开 https://github.com/new ，仓库名建议 `kx-grabber`，然后：
+
+- **不要**勾选 "Add a README file" / "Add .gitignore" / "Choose a license"
+  —— 本地已经有这些文件了，勾了会在 push 时冲突。
+- 公开/私有随意（开源选 Public）。
+
+> 本机装了 `gh`（2.98.0）但**没登录**。想用命令行建仓库就先 `gh auth login`，
+> 然后一条命令搞定（会自动配 remote 并推送）：
+> ```bash
+> gh repo create kx-grabber --public --source=. --remote=origin --push
+> ```
+
+### 第二步：配 remote 并推送（用 SSH）
 
 ```bash
-git init
-git add -A
-git commit -m "feat: 选课助手 KX Grabber —— Chrome MV3 选课自动化插件（零构建、原生 JS）"
-git branch -M main
-git remote add origin https://github.com/<你的用户名>/kx-grabber.git
+git remote add origin git@github.com:acumina/kx-grabber.git
 git push -u origin main
 ```
+
+> 仓库名不是 `kx-grabber` 的话，改这一行；同时把 `package.json` 里的
+> `repository` / `homepage` / `bugs` 三个 URL 一起改掉（否则链接 404）。
+
+### 关于提交里的邮箱（推送前是最后一次能低成本改的机会）
+
+每个提交都会记录 `作者名 <邮箱>`，**push 之后任何人都能看到**。当前是：
+
+```
+acumina <abc1648561300@gmail.com>
+```
+
+- 不介意公开 Gmail → 什么都不用做。
+- 想隐藏 → 用 GitHub 的 noreply 地址（在 GitHub → Settings → Emails 里能看到，
+  形如 `12345678+acumina@users.noreply.github.com`）：
+
+```bash
+git config user.email "12345678+acumina@users.noreply.github.com"
+# 把已有 7 个提交的作者邮箱一起改掉（本地还没推送，改起来很干净）
+git filter-branch -f --env-filter '
+  export GIT_AUTHOR_EMAIL="12345678+acumina@users.noreply.github.com"
+  export GIT_COMMITTER_EMAIL="12345678+acumina@users.noreply.github.com"
+  export GIT_AUTHOR_NAME="acumina"
+  export GIT_COMMITTER_NAME="acumina"
+' -- --all
+```
+
+改完再 push。**一旦推上去再想改就得强推 + 别人已 clone 的副本不会跟着变。**
 
 ## 六、如果不小心推了敏感信息
 

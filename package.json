@@ -7,11 +7,11 @@
   "author": "Acumina",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Acumina/kx-grabber.git"
+    "url": "git+https://github.com/acumina/kx-grabber.git"
   },
-  "homepage": "https://github.com/Acumina/kx-grabber#readme",
+  "homepage": "https://github.com/acumina/kx-grabber#readme",
   "bugs": {
-    "url": "https://github.com/Acumina/kx-grabber/issues"
+    "url": "https://github.com/acumina/kx-grabber/issues"
   },
   "keywords": [
     "chrome-extension",

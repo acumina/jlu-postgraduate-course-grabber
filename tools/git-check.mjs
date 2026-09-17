@@ -114,7 +114,8 @@ function walk(dir, out) {
     let st;
     try { st = statSync(full); } catch (e) { continue; }
     if (st.isDirectory()) {
-      if (name === '.git' || name === 'node_modules') { out.push(full); continue; }
+      // .git / node_modules 直接跳过（不要把目录本身当文件分类，否则会报"未分类 .git"）
+      if (name === '.git' || name === 'node_modules') continue;
       walk(full, out);
     } else out.push(full);
   }

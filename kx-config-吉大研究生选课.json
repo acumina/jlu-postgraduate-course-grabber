@@ -169,11 +169,10 @@
     "webhook": ""
   },
   "debug": {
-    "collectorUrl": "http://127.0.0.1:8790/kx/captures",
-    "autoPush": true,
-    "pushLogs": true,
-    "batchMs": 1000,
-    "maxBatch": 40
+    "collectorUrl": "",
+    "autoPush": false,
+    "pushLogs": false,
+    "autoPushEveryMs": 60000
   },
   "mine": {
     "_note": "已选课程接口：用来**权威地**判断\"这门课我到底选上没有\"。插件会定期核对它：在里面的目标直接标成\"已选上\"（比解析提交响应可靠得多），顺带能发现\"名额已满但其实我已经在里面了\"。这也是退课前必须知道的信息（拿到 WID）。",
@@ -188,5 +187,6 @@
     "enrollModeField": "XKFS",
     "checkEveryMs": 180000,
     "timeoutMs": 15000
-  }
+  },
+  "_debugNote": "发布默认：关闭自动推送（新用户没有本地收集器，开着只会一直失败）。你自己的收集器地址与开关存在浏览器里，应用配置时会保留（KX.mergeBundledConfig），不受这里影响。"
 }

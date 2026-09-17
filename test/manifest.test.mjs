@@ -6,8 +6,8 @@
  * ============================================================ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { resolve, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -209,6 +209,45 @@ test('开源卫生: 仓库里不该出现 logs/（抓包与日志含学号/姓�
   assert.ok(existsSync(join(ROOT, 'tools/install-hooks.mjs')), '要有提交前钩子安装器');
   assert.ok(existsSync(join(ROOT, 'docs/PUBLISH.md')), '要有发布检查清单');
   assert.ok(existsSync(join(ROOT, 'LICENSE')), '开源要带许可证');
+});
+
+test('开源卫生: 所有文本文件不能带 BOM（会让 JSON.parse 直接失败）', () => {
+  /* 真实事故：用 PowerShell 的 Set-Content -Encoding UTF8 改配置文件会写入 BOM，
+   * 于是 JSON.parse 报 "Unexpected token '﻿'"。
+   * 对扩展来说这是**功能性 bug**：自动应用配置时是 fetch + JSON.parse 读这个文件的，
+   * 带 BOM 就读不进来 → 自动配置失效。所以必须钉住。 */
+  const roots = ['src', 'test', 'tools', 'mock', 'docs'];
+  const bad = [];
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      const st = statSync(full);
+      if (st.isDirectory()) { walk(full); continue; }
+      if (!/\.(js|mjs|json|md|html|css|txt)$/i.test(name)) continue;
+      const b = readFileSync(full);
+      if (b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) bad.push(relative(ROOT, full));
+    }
+  }
+  roots.forEach((r) => { if (existsSync(join(ROOT, r))) walk(join(ROOT, r)); });
+  ['manifest.json', 'package.json', 'kx-config-吉大研究生选课.json', 'archives/index.json', 'README.md', 'LICENSE', '.gitignore', '.gitattributes']
+    .forEach((f) => {
+      const full = join(ROOT, f);
+      if (!existsSync(full)) return;
+      const b = readFileSync(full);
+      if (b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) bad.push(f);
+    });
+  assert.deepEqual(bad, [], '这些文件带 BOM（改用 fs.writeFileSync 或编辑器保存为"UTF-8 无 BOM"）：' + bad.join('、'));
+});
+
+test('开源卫生: 所有 JSON 都能解析（发布物坏掉新用户直接用不了）', () => {
+  const list = ['manifest.json', 'package.json', 'kx-config-吉大研究生选课.json', 'archives/index.json'];
+  const archivesDir = join(ROOT, 'archives');
+  if (existsSync(archivesDir)) {
+    readdirSync(archivesDir).filter((f) => /\.json$/i.test(f)).forEach((f) => list.push('archives/' + f));
+  }
+  list.forEach((f) => {
+    assert.doesNotThrow(() => JSON.parse(readFileSync(join(ROOT, f), 'utf8')), f + ' 不是合法 JSON');
+  });
 });
 
 test('全新环境: 面板要有「载入内置预设」按钮，且是整体覆盖而非深合并', () => {

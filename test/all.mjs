@@ -12,3 +12,4 @@ await import('./mock.test.mjs');
 await import('./har2config.test.mjs');
 await import('./panel.test.mjs');
 await import('./collector.test.mjs');
+await import('./shipped.test.mjs');   // 「随仓库发布的那套文件」能不能直接用

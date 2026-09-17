@@ -31,6 +31,17 @@
 - `tools/collector.mjs`：本地收集器（需要 Node.js），把抓包和日志落到 `logs/` 并起一个状态页。**内置预设里默认关闭**（`debug.autoPush=false`），因为它只在"要排查问题、把日志发给别人看"时才有用。
 - `mock/`、`tools/har2config.mjs`、`tools/find-token.mjs`：开发/调试工具，普通使用完全不需要。
 
+## `logs/` 目录说明（不会随仓库分发）
+
+- **不进版本库**：`.gitignore` 排除了它。里面是完整抓包与运行日志 —— 学号、姓名、会话令牌、你已选的全部课程都在里头，公开就是泄露。
+- **不需要你手动创建**：新用户 clone 下来**不会有这个目录**（git 也不跟踪空目录），第一次跑收集器时**自动创建**：
+  ```bash
+  npm run collector                # 自动建 logs/ 并初始化文件
+  node tools/collector.mjs --dir D:\somewhere\logs   # 也可以指定别处（会递归创建）
+  ```
+  这条行为有测试钉住（`test/collector.test.mjs`：目录不存在 → 启动后存在）。
+- **收集器只监听 `127.0.0.1`**，不对外暴露；推送的数据在落盘前会**再脱敏一遍**（密码/验证码/学号/Cookie → `***`）。
+
 ## 课表档案（`archives/`）—— 选课未开也能先挑课
 
 `archives/` 里随项目附带**学校公开课表快照**（例如 `jlu-yjsxk-courses-2026fall.json`，

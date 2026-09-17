@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
  * tools/collector.mjs —— 本地抓包收集器（零依赖，只用 node:http）
  * ------------------------------------------------------------
  * 为什么需要它：与其让你在 DevTools 里导出 HAR 再粘给我，不如让插件把
@@ -64,6 +64,9 @@ export function createCollector(options = {}) {
     startedAt: Date.now(), lastAt: 0, lastHost: '', lastPage: ''
   };
 
+  /* 目录不存在就**自动创建** —— 新用户 clone 下来不会有 logs/（它被 .gitignore 排除，
+   * 而且 git 不跟踪空目录），必须由这里建出来，否则第一次使用就报 ENOENT。
+   * recursive:true 连多级路径一起建（--dir 指到别的盘时也用得上）。 */
   mkdirSync(logDir, { recursive: true });
   if (options.fresh) {
     for (const p of [jsonlPath, harPath, logPath]) { if (existsSync(p)) rmSync(p, { force: true }); }
@@ -230,7 +233,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px
     return json({ ok: false, error: '未知接口 ' + p }, 404);
   });
 
-  server.collector = { state: S, ingest, reset, status: statusJson, files: { jsonlPath, harPath, logPath } };
+  server.collector = { state: S, ingest, reset, status: statusJson, files: { logDir, jsonlPath, harPath, logPath } };
   return server;
 }
 
@@ -240,6 +243,9 @@ function parseArgv(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--port') out.port = Number(argv[++i]) || DEFAULT_PORT;
     else if (argv[i] === '--fresh') out.fresh = true;
+    /* --dir：把落盘位置换到别处（默认 logs/）。
+     * 用途：① 把抓包写到别的盘/临时目录 ② 测试"目录不存在时会自动创建"。 */
+    else if (argv[i] === '--dir') out.logDir = argv[++i];
     else if (argv[i] === '--help' || argv[i] === '-h') out.help = true;
   }
   return out;
@@ -248,7 +254,7 @@ function parseArgv(argv) {
 const argv = parseArgv(process.argv.slice(2));
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (argv.help) {
-    console.log('用法：node tools/collector.mjs [--port 8790] [--fresh]');
+    console.log('用法：node tools/collector.mjs [--port 8790] [--fresh] [--dir <落盘目录>]');
   } else {
     const server = createCollector(argv);
     server.listen(argv.port, '127.0.0.1', () => {

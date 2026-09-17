@@ -52,6 +52,35 @@ async function startCollector(opts) {
   return { server, base, logDir, stop, cleanup };
 }
 
+test('collector: logs/ 不存在时自动创建目录（新用户 clone 下来没有这个目录）', () => {
+  /* 真实需求："不上传 logs，logs 在新用户使用时自动建立文件夹"。
+   * git 不跟踪空目录，logs/ 又被 .gitignore 排除 —— 所以 clone 下来一定没有它，
+   * 必须由收集器自己建出来，否则第一次使用就是 ENOENT。 */
+  const base = mkdtempSync(join(tmpdir(), 'kx-collector-mkdir-'));
+  const target = join(base, 'logs');                 // 刻意不创建它
+  assert.equal(existsSync(target), false, '前提：这个目录一开始不存在');
+  const c = createCollector({ logDir: target });
+  try {
+    assert.equal(existsSync(target), true, 'collector 启动后应自动创建 logs/');
+    assert.equal(existsSync(join(target, 'kx-captures.jsonl')), true, '并初始化 jsonl 文件');
+    assert.equal(c.collector.files.logDir, target);
+  } finally {
+    try { c.close && c.close(); } catch (e) { /* ignore */ }
+    rmSync(base, { recursive: true, force: true });
+  }
+  // 多级路径也要能建（--dir 指到别处时常见）
+  const base2 = mkdtempSync(join(tmpdir(), 'kx-collector-mkdir2-'));
+  const deep = join(base2, 'a', 'b', 'c');
+  assert.equal(existsSync(deep), false);
+  const c2 = createCollector({ logDir: deep });
+  try {
+    assert.equal(existsSync(deep), true, '多级路径也要递归创建');
+  } finally {
+    try { c2.close && c2.close(); } catch (e) { /* ignore */ }
+    rmSync(base2, { recursive: true, force: true });
+  }
+});
+
 test('collector: 只监听本机，且 ping 返回落盘路径', async () => {
   const m = await startCollector();
   try {

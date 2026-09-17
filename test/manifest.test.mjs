@@ -175,6 +175,42 @@ test('全新环境: 内置预设必须能在没导入任何文件时一键配好
   assert.equal('drop' in p, false, '退课不做自动化：预设里不该有 drop 段');
 });
 
+test('开源卫生: 内置预设必须与配置文件同步（改配置忘了重新生成预设会立刻暴露）', async () => {
+  /* 为什么需要：内置预设（src/lib/presets.js）是从 kx-config-*.json 生成的。
+   * 改了配置却忘了跑 node tools/make-preset.mjs，新装用户拿到的就是旧预设 ——
+   * 这种漂移在本地看不出来（你用的是浏览器里的配置），只有新用户会踩到。 */
+  const cfg = JSON.parse(readFileSync(resolve(ROOT, 'kx-config-吉大研究生选课.json'), 'utf8'));
+  await import('../src/lib/presets.js').catch(() => { });
+  const P = globalThis.KXPresets || {};
+  const key = Object.keys(P)[0];
+  assert.ok(key, '内置预设不存在');
+  const p = P[key];
+  // 预设与配置的差异只允许这三处（生成脚本刻意为之）
+  const ignore = new Set(['_说明', 'targets', 'debug', 'enabled']);
+  const drift = [];
+  for (const k of Object.keys(cfg)) {
+    if (ignore.has(k)) continue;
+    if (JSON.stringify(cfg[k]) !== JSON.stringify(p[k])) drift.push(k);
+  }
+  assert.deepEqual(drift, [],
+    '这些键在配置与内置预设之间不一致：' + drift.join('、') + ' —— 跑一次 node tools/make-preset.mjs');
+  // 预设刻意清空的字段（新装用户不该带着别人的选课清单与本地收集器地址）
+  assert.deepEqual(p.targets, [], '预设不能带 targets');
+  assert.equal(p.debug.autoPush, false, '预设不能打开自动推送（新环境没有本地收集器）');
+});
+
+test('开源卫生: 仓库里不该出现 logs/（抓包与日志含学号/姓名/令牌）', () => {
+  const gi = readFileSync(resolve(ROOT, '.gitignore'), 'utf8');
+  assert.ok(/^logs\/$/m.test(gi), '.gitignore 必须排除 logs/');
+  assert.ok(/^\*\.har$/m.test(gi), '.gitignore 必须排除 *.har');
+  assert.ok(/^!test\/fixtures\/\*\.har$/m.test(gi), '但测试夹具要留例外（否则测试跑不了）');
+  assert.ok(existsSync(join(ROOT, 'tools/scan-secrets.mjs')), '要有敏感信息扫描工具');
+  assert.ok(existsSync(join(ROOT, 'tools/git-check.mjs')), '要有"哪些文件能上传"的核对工具');
+  assert.ok(existsSync(join(ROOT, 'tools/install-hooks.mjs')), '要有提交前钩子安装器');
+  assert.ok(existsSync(join(ROOT, 'docs/PUBLISH.md')), '要有发布检查清单');
+  assert.ok(existsSync(join(ROOT, 'LICENSE')), '开源要带许可证');
+});
+
 test('全新环境: 面板要有「载入内置预设」按钮，且是整体覆盖而非深合并', () => {
   const panel = readFileSync(resolve(ROOT, 'src/panel.js'), 'utf8');
   assert.ok(/data-act="load-preset"/.test(panel), '要有载入预设按钮');

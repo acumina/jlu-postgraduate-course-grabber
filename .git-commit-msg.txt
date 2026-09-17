@@ -1,0 +1,13 @@
+fix(tools): 扫描器路径判断在 Windows 上失效 + 署名类文件豁免
+
+- relative() 在 Windows 返回 "docs\PUBLISH.md"，而白名单正则写成 "docs/"，
+  于是「署名豁免」和「示例路径降级」两个判断全部失效（真实踩到：用 --name 扫自己的
+  笔名时，docs/PUBLISH.md 里讲版权怎么写的那几行被报成高危泄露）。
+  现在统一把路径转成正斜杠。
+- 署名类文件（package.json / manifest.json / LICENSE / README / docs/）对「姓名」
+  整体豁免 —— 那些地方写作者名是故意的；其它文件出现真实姓名仍报高危（已反向验证）。
+
+作者信息：
+- package.json: author=Acumina，补上 repository/homepage/bugs
+- manifest.json: 加 "author"（会显示在 chrome://extensions）
+- LICENSE: Copyright (c) 2026 Acumina

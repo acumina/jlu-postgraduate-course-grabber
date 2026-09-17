@@ -15,6 +15,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TAG = process.argv[2] || 'v0.1.0';
+/* 标题可传第二个参数（例：node tools/make-release-payload.mjs v0.1.0 "v0.1.0 —— first-release"）。
+ * 走命令行传中文标题有编码风险，所以最终是用 gh api --input 读这个 JSON 来设置 ✅ */
+const TITLE = process.argv[3] || (TAG + ' —— 首个发布版');
 const ZIP_NAME = 'jlu-postgraduate-course-grabber-' + TAG + '.zip';
 const ZIP = join(ROOT, 'dist', ZIP_NAME);
 const NOTES = join(ROOT, 'docs', 'releases', TAG + '.md');
@@ -26,6 +29,9 @@ const sha = createHash('sha256').update(readFileSync(ZIP)).digest('hex').toUpper
 const sizeKB = Math.round(readFileSync(ZIP).length / 1024 * 10) / 10;
 
 let body = readFileSync(NOTES, 'utf8').trimEnd();
+/* 去掉正文开头的 H1：Release 页面标题已经显示标题了，正文再来一个 H1 是重复的
+ * （而且标题改了之后两者会不一致）。 */
+body = body.replace(/^#\s+[^\n]*\n+/, '');
 body += '\n\n## 下载\n\n'
   + '| 文件 | 大小 | 说明 |\n| --- | --- | --- |\n'
   + '| `' + ZIP_NAME + '` | ' + sizeKB + ' KB | **推荐**：解压后 `manifest.json` 就在根目录，直接「加载已解压的扩展程序」 |\n'
@@ -34,7 +40,7 @@ body += '\n\n## 下载\n\n'
   + '> 校验下载是否被篡改：`certutil -hashfile ' + ZIP_NAME + ' SHA256`（Windows）\n'
   + '> 或 `sha256sum ' + ZIP_NAME + '`（macOS / Linux），结果应与上面一致。\n';
 
-const payload = { name: TAG + ' —— 首个发布版', body: body, draft: false, prerelease: false };
+const payload = { name: TITLE, body: body, draft: false, prerelease: false };
 mkdirSync(join(ROOT, 'dist'), { recursive: true });
 const out = join(ROOT, 'dist', 'release-' + TAG + '.json');
 writeFileSync(out, JSON.stringify(payload), 'utf8');

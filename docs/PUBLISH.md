@@ -64,27 +64,34 @@ node tools/make-archive-index.mjs    # 重新生成课表档案索引
 
 ### 第一步：在 GitHub 上创建**空**仓库
 
-打开 https://github.com/new ，仓库名建议 `kx-grabber`，然后：
+打开 https://github.com/new ：
 
-- **不要**勾选 "Add a README file" / "Add .gitignore" / "Choose a license"
-  —— 本地已经有这些文件了，勾了会在 push 时冲突。
-- 公开/私有随意（开源选 Public）。
+- 仓库名：`jlu-postgraduate-course-grabber`
+- 描述（建议）：`吉林大学研究生选课系统自动选课 Chrome 插件（MV3，零依赖，抓包学习真实请求）`
+- **不要**勾选 "Add README file" / "Add .gitignore" / "Choose a license"
+  —— 本地已经有这三个文件了，勾了会在 push 时冲突。
+- Public / Private 随意（开源选 Public）
 
 > 本机装了 `gh`（2.98.0）但**没登录**。想用命令行建仓库就先 `gh auth login`，
 > 然后一条命令搞定（会自动配 remote 并推送）：
 > ```bash
-> gh repo create kx-grabber --public --source=. --remote=origin --push
+> gh repo create jlu-postgraduate-course-grabber --public --source=. --remote=origin --push
 > ```
 
 ### 第二步：配 remote 并推送（用 SSH）
 
 ```bash
-git remote add origin git@github.com:acumina/kx-grabber.git
+git remote add origin git@github.com:acumina/jlu-postgraduate-course-grabber.git
 git push -u origin main
 ```
 
-> 仓库名不是 `kx-grabber` 的话，改这一行；同时把 `package.json` 里的
-> `repository` / `homepage` / `bugs` 三个 URL 一起改掉（否则链接 404）。
+### 第三步（可选）：给仓库加上 Topics
+
+在仓库页面右上角 ⚙️ → Topics，加上这几个，便于别人搜到：
+
+```
+chrome-extension  manifest-v3  course-selection  automation  jlu  education
+```
 
 ### 关于提交里的邮箱（推送前是最后一次能低成本改的机会）
 

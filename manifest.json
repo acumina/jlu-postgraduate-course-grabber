@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "选课助手 · KX Grabber",
   "version": "0.1.0",
+  "author": "Acumina",
   "description": "抓包学习真实选课请求 → 模板化模拟发包 → 监控余量与选课ID → 自动抢课。纯本地运行，不向任何服务器上传数据。",
   "minimum_chrome_version": "116",
   "permissions": [

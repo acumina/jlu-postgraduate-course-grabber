@@ -44,10 +44,18 @@ node tools/make-archive-index.mjs    # 重新生成课表档案索引
 
 ## 四、其它检查
 
-- [ ] `package.json` 的 `author`、`repository` 填成你自己的（现在留空/占位）
+- [x] `package.json` 的 `author`（Acumina）、`repository` / `homepage` / `bugs` 已填
+      —— 如果 GitHub 仓库名不是 `kx-grabber`，把这三个 URL 一起改掉
+- [x] `manifest.json` 也带了 `"author"`（会显示在 `chrome://extensions` 上）
+- [x] `LICENSE` 版权行已填：`Copyright (c) 2026 Acumina`
 - [ ] `README.md` 顶部「风险与合规提示」保留 —— 这类工具必须写清楚
-- [ ] `LICENSE` 里的版权行改成你的名字或 GitHub 用户名
 - [ ] 确认没有把**别人的**课表/抓包一起提交（`archives/` 里只放公开课表）
+
+> 关于版权行：`Copyright (c) <年份> <版权持有者>` 就够。持有者可以是真名、GitHub ID
+> 或组织名 —— 用 handle（Acumina）完全合规且常见，不必写真实姓名。
+> 年份写**首次发布**那一年；跨年更新可以写成 `2026-2027`。
+> 不需要 `All rights reserved`（那是另一套模板的写法）。
+> MIT 要求再分发时保留这份 LICENSE 与版权声明 —— 这正是你想要的：别人能用，但要署名。
 
 ## 五、初始化并推送
 

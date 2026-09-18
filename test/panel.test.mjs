@@ -7,6 +7,7 @@
  *   · 输出里没有 undefined / NaN / [object Object] 这类脏值
  *   · 标签基本配平
  *   · 主要按钮都在（改坏了按钮名字会立刻发现）
+ *   · **每个 data-act 都有对应的 case**（点了没反应这类 bug 立刻暴露）
  *   · 一部分按钮点击不抛异常
  * 用法：node test/panel.test.mjs
  * ============================================================ */
@@ -502,6 +503,55 @@ test('panel: 同名班策略 —— 一起抢，且默认**不**自动收手（�
   assert.equal(cfg.engine.autoStopSameName, false, '默认必须是不自动收手');
   assert.ok(cfg.engine.autoResolveMinScore <= 0.7, '模糊门槛按用户要求放低（当前 ' + cfg.engine.autoResolveMinScore + '）');
   assert.ok(cfg.engine.autoResolveMinGap <= 0.05, '领先第二名门槛也放低（当前 ' + cfg.engine.autoResolveMinGap + '）');
+});
+
+test('panel: 每个 data-act 必须有对应的 case（否则点击静默无反应）', async () => {
+  /* 真实 bug（用户报"加监控点击没反应"）：档案页每行的按钮写的是
+   * data-act="arch-add"，但处理器里**只有** case 'add-target' ——
+   * 点击落到 switch 的 default → 什么都不发生，也没有任何提示。
+   * 之前的测试只检查"按钮存在"，没检查"按钮有人接"，于是这个漏洞活了很久。
+   * 这个断言把整类问题堵住：UI 里出现的每个动作名都必须有处理分支。 */
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const ROOT2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const src = fs.readFileSync(path.join(ROOT2, 'src/panel.js'), 'utf8');
+
+  /* 只看真正的 <button>：input/textarea 上的 data-act 是给 querySelector 查值用的，
+   * 不需要 switch 分支（arch-name / arch-dir / import / config-json 这些都是输入框）。 */
+  const acts = Array.from(new Set(
+    Array.from(src.matchAll(/<button\b[^>]*?data-act=[\\]?["']([a-zA-Z0-9-]+)/g)).map((m) => m[1])
+  )).sort();
+  const cases = new Set(
+    Array.from(src.matchAll(/case '([a-zA-Z0-9-]+)':/g)).map((m) => m[1])
+  );
+  assert.ok(acts.length > 25, '至少应该识别出二十多个按钮（识别太少说明正则失效了）：' + acts.length);
+  const missing = acts.filter((a) => !cases.has(a));
+  assert.deepEqual(missing, [],
+    '这些按钮没有处理逻辑（点了没反应）：' + missing.join('、'));
+});
+
+test('panel: 面板调用的每个 app 方法都必须在门面里存在（否则点击报错/无反应）', async () => {
+  /* 和 data-act 那条同类：按钮有分支了，但分支里调的 app.xxx 不存在，一样是"点了没反应"
+   * （只是这次会在控制台抛 TypeError，用户更看不到）。 */
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const ROOT2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const panel = fs.readFileSync(path.join(ROOT2, 'src/panel.js'), 'utf8');
+  const content = fs.readFileSync(path.join(ROOT2, 'src/content.js'), 'utf8');
+
+  const used = new Set();
+  for (const m of panel.matchAll(/\b(?:app|S\.app)\.([A-Za-z_$][\w$]*)\s*\(/g)) used.add(m[1]);
+  const facadeAt = content.indexOf('const KXApp = {');
+  assert.ok(facadeAt > 0, 'content.js 里应该有 KXApp 门面');
+  const seg = content.slice(facadeAt, facadeAt + 12000);
+  const provided = new Set();
+  for (const m of seg.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*[:(]/gm)) provided.add(m[1]);
+
+  assert.ok(used.size > 30, '应该识别出几十个调用：' + used.size);
+  const missing = Array.from(used).filter((k) => !provided.has(k)).sort();
+  assert.deepEqual(missing, [], '面板调用了但门面里没有的方法：' + missing.join('、'));
 });
 
 test('panel: 点击关键按钮不抛异常（打桩 app）', () => {

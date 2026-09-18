@@ -48,7 +48,9 @@ globalThis.KXPresets = {
       "autoResolveMinScore": 0.6,
       "autoResolveMinGap": 0.04,
       "autoStopSameName": false,
-      "_resolveNote": "同名班策略（用户要求）：默认 **不自动收手**，同名教学班一直一起抢。理由：多抢一个只是去退一次课（可逆），而误停一个是丢掉课程（不可逆）；而\"是否抢到了\"的判定本身不完全可靠（曾把成功响应判成\"无法判定\"，白抢一小时）。模糊门槛相应放低：autoResolveMinScore=0.6、autoResolveMinGap=0.04。想省得退课，可把 autoStopSameName 设为 true —— 它只在「已选课程」列表（服务器权威）确认后才停同名的其它班。"
+      "_resolveNote": "同名班策略（用户要求）：默认 **不自动收手**，同名教学班一直一起抢。理由：多抢一个只是去退一次课（可逆），而误停一个是丢掉课程（不可逆）；而\"是否抢到了\"的判定本身不完全可靠（曾把成功响应判成\"无法判定\"，白抢一小时）。模糊门槛相应放低：autoResolveMinScore=0.6、autoResolveMinGap=0.04。想省得退课，可把 autoStopSameName 设为 true —— 它只在「已选课程」列表（服务器权威）确认后才停同名的其它班。",
+      "autoResolveFallback": true,
+      "_wishlistNote": "备选清单（wishlist）只记课程名/教师/校区，不记教学班ID —— ID 每年都变，只有课程名能跨年跨电脑带走。新电脑上装好扩展后，插件会自动把备选清单变成监控目标，进选课页拉到时课表后按课程名模糊匹配成今年的ID并开抢（autoResolveFallback=true 表示相似度不够也采用最像的那个：多抢一门只是退一次课，匹配不到就整轮错过）。"
     },
     "query": {
       "_note": "enabled=false = 盲发模式：不查余量，直接高频提交 choiceCourse.do，用 rules.full 判断「容量已满」。query.url 仍保留，仅供「登录态体检」每 5 分钟发一次（那是读接口，用来确认会话是否还活着）。想切回先查后抢：把 enabled 改成 true，并把 pageSize 调到能覆盖全部课程（如 200）。",

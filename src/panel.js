@@ -431,13 +431,47 @@ td .tag { display: inline-block; }
         });
         let total = 0;
         all.forEach(function (r) { if (keys[R.normCourseName(r.name || '')]) total++; });
-        return '<button class="btn sm p" data-act="arch-add-same-name">连同同名班一起加（共 ' + total + ' 门）</button>';
+        return '<button class="btn sm p" data-act="arch-add-same-name">连同同名班一起加（共 ' + total + ' 门）</button>'
+          + '<button class="btn sm p" data-act="arch-add-wishlist">加入备选清单（明年自动找回，共 ' + total + ' 门）</button>';
       })()
       + '</div>'
       + (sel.size ? '<div class="hint">同名教学班可以<b>一起抢</b>（多一个班多一次机会）。'
         + '插件默认<b>不会</b>因为"判定抢到了"就自动停掉同名其它班 —— '
         + '多抢一个只是多退一次课（可逆），而误停一个会丢掉课程（不可逆）。'
-        + '抢到多余的自己去学校页面退掉即可。</div>' : '');
+        + '抢到多余的自己去学校页面退掉即可。</div>' : '')
+      + (function () {
+        /* 备选清单：跨年/跨电脑带走"想选哪些课"的唯一载体。
+         * 教学班 ID 每年都变，只有课程名能带过去 —— 明年在新电脑上装好扩展，
+         * 插件会自动把它变成"按名字监控"的目标，进选课页后模糊匹配成真 ID 并开抢。 */
+        const wl = S.wishlist || [];
+        let hh = '<div class="grp" style="margin-top:6px"><div class="gt">备选清单（跨年用）'
+          + '　<span class="small">共 ' + wl.length + ' 门</span></div>';
+        if (!wl.length) {
+          hh += '<div class="hint">把今年挑好的课<b>加入备选清单</b>：它只记课程名（不记教学班ID），'
+            + '所以明年在新电脑上装好扩展后，插件会自动把这些课变成监控目标、'
+            + '进选课页按课程名匹配今年的班级并开抢 —— <b>不需要你第一次手动操作</b>。</div>';
+        } else {
+          hh += '<table><tr><th>课程名</th><th style="width:90px">教师</th><th style="width:70px">校区</th></tr>'
+            + wl.slice(0, 30).map(function (w) {
+              return '<tr><td class="ell" title="' + esc(w.name || '') + '">' + esc(w.name || '') + '</td>'
+                + '<td class="small">' + esc(w.teacher || '') + '</td>'
+                + '<td class="small">' + esc(w.campus || '') + '</td></tr>';
+            }).join('') + '</table>'
+            + (wl.length > 30 ? '<div class="small">…还有 ' + (wl.length - 30) + ' 门</div>' : '')
+            + '<div class="hint">明年/换电脑后：装好扩展 → 在选课页登录 → 这些课会自动变成监控目标并按名字匹配班级。'
+            + '（当前已有目标时不会重复添加）</div>';
+        }
+        hh += '<div class="row"><button class="btn sm" data-act="wish-clear"' + (wl.length ? '' : ' disabled') + '>清空备选清单</button>'
+          + '<button class="btn sm" data-act="wish-seed"' + (wl.length ? '' : ' disabled') + '>立即用它生成监控目标</button>'
+          + '<button class="btn sm p" data-act="wish-copy"' + (wl.length ? '' : ' disabled') + '>复制为配置片段（贴进项目配置文件）</button></div>';
+        if (wl.length) {
+          hh += '<div class="hint">想让<b>新电脑/重装后</b>也自动带着这些课：点上面「复制为配置片段」，'
+            + '把复制到的内容替换项目里 <code>kx-config-吉大研究生选课.json</code> 的 <code>"wishlist"</code> 字段，'
+            + '然后提交/同步那个文件。新电脑上装好扩展、登录、进选课页，剩下的都自动。</div>';
+        }
+        hh += '</div>';
+        return hh;
+      })();
 
     h += '<table><tr>'
       + '<th style="width:24px"></th><th style="width:104px">教学班ID</th><th>课程</th>'
@@ -475,6 +509,18 @@ td .tag { display: inline-block; }
       + (st.auth && st.auth.state === 'lost' ? '<button class="btn sm p" data-act="open-login">打开登录页</button>' : '')
       + '<button class="btn sm" data-act="mark-login">我刚登录了</button></div>'
       + (usesKch ? '<div class="hint">提交模板里用了 <code>{{kch}}</code>：每个目标都必须填课程号，留空会发出空值导致提交失败。</div>' : '');
+
+    /* 「待解析」目标（ID 为空，通常是备选清单变来的）：
+     * 必须显眼地告诉用户"这不是坏了，是等选课页拉课表后自动匹配"。 */
+    const pending = (st.targets || []).filter(function (t) { return t && t.enabled !== false && !String(t.id || '').trim(); });
+    if (pending.length) {
+      h += '<div class="hint" style="border-left:3px solid #2c7;padding-left:6px">'
+        + '<b>' + pending.length + ' 个目标还没有教学班ID</b>（来自备选清单）——'
+        + '这是<b>正常状态</b>：进入选课页、能拉到今年课表时，插件会自动按'
+        + '<b>课程名+教师+校区</b>模糊匹配（相似度不够也采用最像的那个 = 最大兜底），'
+        + '匹配到就开始抢，<b>不需要你手动操作</b>。'
+        + '<br>想立刻试一次：点上面「启动」或到「余量」页点「查询一次(全量)」。</div>';
+    }
 
     /* 已选课程（服务器权威判据）—— 放在目标页最上面：
      * 这里是"到底选上了没有"的答案，也是退课的入口。
@@ -1301,6 +1347,58 @@ td .tag { display: inline-block; }
       case 'arch-clear':
         if (confirm('清空本地课程档案？（不影响目标列表）')) app.clearArchive().then(render);
         break;
+      case 'arch-add-wishlist': {
+        /* 加入备选清单：只记课程名（跨年/跨电脑可带走） */
+        const ids = Array.from(S.archSel || []);
+        if (!ids.length) break;
+        const rows0 = (S.archive.rows || []);
+        const keys = {};
+        rows0.filter(function (r) { return ids.indexOf(r.id) !== -1; })
+          .forEach(function (r) { const k = R.normCourseName(r.name || ''); if (k) keys[k] = 1; });
+        const want = rows0.filter(function (r) { return keys[R.normCourseName(r.name || '')]; });
+        if (!confirm('把这些课加入备选清单？\n\n共 ' + want.length + ' 门\n\n'
+          + '· 备选清单只记**课程名/教师/校区**，不记教学班ID（ID每年都变）\n'
+          + '· 明年在新电脑上装好扩展后，这些课会**自动**变成监控目标、\n'
+          + '  进选课页按课程名匹配今年的班级并开抢 —— 不需要你手动操作\n'
+          + '· 已经有的目标不会被影响')) break;
+        app.addWishlist(want.map(function (r) {
+          return { name: r.name, teacher: r.teacher, campus: r.campus, code: r.code };
+        })).then(function (r) {
+          alert('已加入备选清单：新增 ' + (r.added || 0) + ' 门，共 ' + (r.total || 0) + ' 门。'
+            + ((r.skipped ? '\n（' + r.skipped + ' 门因为同名已存在而跳过）' : ''))
+            + '\n\n明年/换电脑后会自动生效 ✅');
+          S.archSel = new Set();
+          render();
+        });
+        break;
+      }
+      case 'wish-clear':
+        if (!confirm('清空备选清单？（不影响现有的监控目标）')) break;
+        app.clearWishlist().then(function () { render(); });
+        break;
+      case 'wish-copy':
+        (function () {
+          const wl = S.wishlist || [];
+          if (!wl.length) { alert('备选清单是空的'); return; }
+          const snippet = '"wishlist": ' + JSON.stringify(wl.map(function (w) {
+            return { name: w.name, teacher: w.teacher || '', campus: w.campus || '', code: w.code || '' };
+          }), null, 2).split('\n').map(function (l, i) { return i === 0 ? l : '  ' + l; }).join('\n') + ',';
+          copy(snippet);
+          alert('已复制备选清单（' + wl.length + ' 门）到剪贴板。\n\n'
+            + '用法：打开项目的 kx-config-吉大研究生选课.json，\n'
+            + '把它的 "wishlist" 字段整段替换成刚复制的内容，保存。\n'
+            + '（新电脑上装好扩展后会自动读取，不用手动导入）');
+        })();
+        break;
+      case 'wish-seed':
+        app.seedFromWishlist().then(function (r) {
+          alert(r && r.seeded
+            ? '已用备选清单生成 ' + r.seeded + ' 个监控目标（还没有ID）。\n\n'
+              + '进选课页后会自动按课程名匹配今年的班级并开始抢 ✅'
+            : '没有生成：' + ((r && r.why) || '未知原因') + '\n\n（只有当前一个目标都没有时才会生成）');
+          render();
+        });
+        break;
       case 'arch-resolve': {
         if (!(S.archive.rows || []).length) { alert('档案是空的 —— 先点「刷新档案（全量查询）」'); break; }
         app.resolveTargets({ dryRun: true }).then(function (r) {
@@ -1914,6 +2012,11 @@ td .tag { display: inline-block; }
     /** 配置来源状态（项目里的配置文件是否已自动应用） */
     configSource: function (c) {
       S.configSource = c || {};
+      scheduleRender();
+    },
+    /** 备选清单（跨年用：只有课程名，明年自动变成监控目标） */
+    wishlist: function (w) {
+      S.wishlist = Array.isArray(w) ? w.slice() : [];
       scheduleRender();
     },
     /** 已选课程（服务器权威判据）：目标页据此显示"确认已选上" */

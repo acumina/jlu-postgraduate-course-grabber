@@ -119,3 +119,91 @@ test('发布物: 引擎参数在合理范围（发布即用，不需要用户先
   assert.equal(st.session.autoOpenLoginBeforeMs, 0, '不按推算值提前打开登录页（会刷屏）');
   assert.equal((st.debug || {}).autoPush, false, '发布配置不打开自动推送（新用户没有本地收集器）');
 });
+
+test('零手动流程: 备选清单能跨年跨电脑带走"想选哪些课"，并在新环境自动变成监控目标', () => {
+  /* 用户要的明年流程（原话）：
+   *   "先预备选档案里的今年课 → 点页面登陆 → 直接进入选课页面查找模糊课程或相似课程
+   *    最大兜底加入监控 → 开始自动选课（不需要第一次手动操作）"
+   * 关键洞察：教学班 ID 每年都变（20261-101-A0162101001-1785413134156 这种），
+   * 所以跨年/跨电脑能带走的只有"课程名"。备选清单就是它的载体。 */
+  // ① 清单 → 目标：ID 必须留空（空 ID 才会触发"按名字匹配"，而不是拿空 ID 发请求）
+  const targets = KX.wishlistToTargets([
+    { name: '研究生心理成长', teacher: '王某某', campus: '前卫校区' },
+    { name: '羽毛球' },
+    { label: '只有label也算' },
+    { name: '   ' }                    // 空名字要被过滤
+  ]);
+  assert.equal(targets.length, 3, '空名字要过滤掉');
+  targets.forEach((t) => {
+    assert.equal(t.id, '', 'ID 必须留空（待解析状态）');
+    assert.equal(t.enabled, true);
+    assert.equal(t.fromWishlist, true, '要标记来源，便于面板提示');
+    assert.ok(t.name, '必须有课程名（匹配只靠它）');
+  });
+  // ② 新电脑（本地清单为空）→ 用项目文件里的清单（种子语义）
+  const seeded = KX.mergeBundledConfig(
+    { sites: ['x'], wishlist: [{ name: '去年挑好的课' }] },
+    { targets: [], engine: {}, wishlist: [] }
+  );
+  assert.equal(seeded.wishlist.length, 1, '本地为空时必须用文件里的备选清单（新电脑自动带着课）');
+  // ③ 已有自己的清单 → 不被文件覆盖
+  const kept = KX.mergeBundledConfig(
+    { sites: ['x'], wishlist: [{ name: '文件里的' }] },
+    { targets: [], engine: {}, wishlist: [{ name: '我自己配的' }] }
+  );
+  assert.equal(kept.wishlist[0].name, '我自己配的', '本地有清单时不能被文件覆盖');
+  // ④ 绝不能冲掉已有目标
+  const withTargets = KX.mergeBundledConfig(
+    { sites: ['x'], wishlist: [{ name: 'a' }] },
+    { targets: [{ id: 'T1' }], engine: {}, wishlist: [] }
+  );
+  assert.equal(withTargets.targets.length, 1, '备选清单不能动已有的目标');
+});
+
+test('最大兜底: 相似度不够也用最像的那个（抢错能退课，错过就没了）', () => {
+  /* 用户原话："查找模糊课程或相似课程最大兜底加入监控"、
+   * "模糊门槛可以更低一些，因为抢错了可以退课，比模糊不到更好"。 */
+  const rows = [{ id: 'X1', name: '知识产权法', raw: { RKJS: '张老师' } }];
+  const cands = R.matchCoursesByName(rows, { label: '知识产权法律基础' });
+  assert.ok(cands.length, '应该给得出候选');
+  assert.ok(cands[0].score < 0.8, '这个相似度确实不够高（' + cands[0].score.toFixed(2) + '）');
+  // 严格模式：不采用
+  const strict = R.pickWithFallback(cands, { minScore: 0.85, minGap: 0.08, allowFallback: false });
+  assert.equal(strict.ok, false, '关掉兜底时不能采用');
+  // 最大兜底：采用最像的那个，并标记 fallback
+  const loose = R.pickWithFallback(cands, { minScore: 0.85, minGap: 0.08, allowFallback: true });
+  assert.equal(loose.ok, true, '开启兜底时必须采用最像的那个');
+  assert.equal(loose.fallback, true, '要标记这是兜底匹配（日志/通知里会写明）');
+  assert.equal(loose.best.row.id, 'X1');
+  // 一个候选都没有时，兜底也不能凭空造
+  const none = R.pickWithFallback([], { allowFallback: true });
+  assert.equal(none.ok, false, '没有候选时兜底也无能为力');
+  // 分数够时不算兜底
+  const good = R.pickWithFallback([{ row: { id: 'Y' }, score: 0.95 }], { minScore: 0.6, minGap: 0.04, allowFallback: true });
+  assert.equal(good.fallback, false, '分数够时不应标记为兜底');
+});
+
+test('零手动流程: 引擎必须真的会触发这套自动解析（静态钉住关键接线）', () => {
+  /* 这几行是"不需要第一次手动操作"的全部依赖：
+   * 少任何一处，新电脑上就变成"装好了但什么都不发生"。 */
+  const c = read('src/content.js');
+  // ① 启动时把备选清单变成目标（用行首锚定：注释掉的调用不算数 —— 这个太弱的断言被反向验证抓到过）
+  assert.ok(/^\s*await seedTargetsFromWishlist\(\)/m.test(c), 'boot 里必须真的调用 seedTargetsFromWishlist（不能被注释掉）');
+  // ② 待解析目标要立刻解析（不受节流）
+  assert.ok(/!pending\.length && Date\.now\(\) - lastAutoResolveAt/.test(c),
+    '有"还没有ID"的目标时必须立刻解析，不能被节流挡住');
+  assert.ok(/^\s*autoResolveTargets\('有目标还没有教学班ID/m.test(c),
+    'cycle 里要真的触发解析（行首锚定，注释不算），否则空ID目标一个请求都发不出去');
+  // ③ 触发必须在 targets 过滤之前（过滤会把空 ID 目标丢掉）
+  const at = c.indexOf('// 2) 逐目标处理');
+  const cycleSeg = c.slice(at, at + 1200);
+  assert.ok(/autoResolveTargets\(/.test(cycleSeg), '触发解析必须发生在 targets 过滤之前');
+  // ④ 按下标回写（按 ID 找会把所有空 ID 目标写到同一个目标上 —— 已修的真 bug）
+  assert.ok(/for \(let i = 0; i < targets\.length; i\+\+\)/.test(c), '解析要按下标遍历');
+  assert.ok(/targets\[i\] = Object\.assign/.test(c), '解析要按下标回写（空 ID 目标不能按 ID 匹配）');
+  // ⑤ 面板要有入口与解释
+  const p = read('src/panel.js');
+  assert.ok(/data-act="arch-add-wishlist"/.test(p), '档案页要有「加入备选清单」按钮');
+  assert.ok(/还没有教学班ID/.test(p), '目标页要解释"待解析"是正常状态');
+  assert.ok(/不需要你手动操作/.test(p), '要明确告诉用户这一步是自动的');
+});

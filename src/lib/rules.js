@@ -592,6 +592,30 @@
     return { ok: true, best: best, candidates: list };
   }
 
+  /**
+   * 带「最大兜底」的挑选：门槛不过时，**也采用最像的那一个**。
+   *
+   * 用户明确要求（原话）："查找模糊课程或相似课程最大兜底加入监控"、
+   * "模糊门槛可以更低一些，因为抢错了可以退课，比模糊不到更好"。
+   * 代价对比很清晰：多抢一门 = 去学校页面退一次课（可逆）；
+   * 匹配不到 = 这门课整轮都没参与抢（不可逆）。
+   *
+   * 关掉兜底（opts.allowFallback === false）就退回 pickBestMatch 的严格行为：
+   * 存疑不动、留给人工决定。
+   *
+   * @returns {ok, best, candidates, fallback, reason}  fallback=true 表示"是兜底采用的最像的那个"
+   */
+  function pickWithFallback(cands, opts) {
+    const o = opts || {};
+    const pick = pickBestMatch(cands, { minScore: o.minScore, minGap: o.minGap });
+    const list = cands || [];
+    if (pick.ok) return { ok: true, best: pick.best, candidates: list, fallback: false, reason: 'confident' };
+    if (o.allowFallback !== false && list.length) {
+      return { ok: true, best: list[0], candidates: list, fallback: true, reason: 'fallback' };
+    }
+    return { ok: false, best: pick.best, candidates: list, fallback: false, reason: pick.reason };
+  }
+
   globalThis.KXRules = {
     evalRule,
     jsonGet,
@@ -614,6 +638,7 @@
     normCourseName,
     nameSimilarity,
     matchCoursesByName,
-    pickBestMatch
+    pickBestMatch,
+    pickWithFallback
   };
 })();

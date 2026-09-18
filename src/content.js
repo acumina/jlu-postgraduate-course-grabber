@@ -1460,6 +1460,13 @@
     }
 
     // 2) 逐目标处理
+    /* 有"还没有ID"的目标（备选清单变来的）→ 立刻按课程名解析。
+     * 不解析它们一个请求都发不出去（下面 filter 会把空 ID 的目标过滤掉），
+     * 所以这里不等节流、也不等"查不到"才触发 —— 这就是用户要的
+     * "进选课页自动查找模糊/相似课程并加入监控，不需要第一次手动操作"。 */
+    if ((cfg.targets || []).some(function (t) { return t && t.enabled !== false && !String(t.id || '').trim(); })) {
+      autoResolveTargets('有目标还没有教学班ID（备选清单）').catch(function () { });
+    }
     const targets = (cfg.targets || []).filter(function (t) { return t && t.id && t.enabled !== false; });
     targets.sort(function (a, b) { return (Number(a.priority) || 99) - (Number(b.priority) || 99); });
     const maxConc = Math.max(1, Number(cfg.engine.maxConcurrent) || 1);
@@ -2306,22 +2313,40 @@
     const cfg = KX.snapshot();
     const list = (opts && opts.rows) || archiveAsRows();
     if (!list.length) return { ok: false, error: '档案是空的 —— 先在「档案」页点「刷新档案（全量查询）」' };
+    const eng = cfg.engine || {};
+    const minScore = Number(eng.autoResolveMinScore) || 0.6;
+    const minGap = Number(eng.autoResolveMinGap) || 0.04;
+    /* 最大兜底（用户要求："查找模糊课程或相似课程最大兜底"、"抢错了可以退课，比模糊不到更好"）：
+     * 连门槛都不过时，也采用**最像的那一个**。关掉它（engine.autoResolveFallback=false）
+     * 就退回旧行为：存疑不动、留给人工选。 */
+    const allowFallback = eng.autoResolveFallback !== false;
+
     const targets = (cfg.targets || []).slice();
     const inList = {};
     list.forEach(function (r) { inList[normId(r.id)] = r; });
     const report = [];
     let changed = 0;
+    let fallbackCount = 0;
 
-    for (const t of targets) {
-      const cur = inList[normId(t.id)];
-      if (cur) { report.push({ id: t.id, label: t.label, action: 'keep', why: '当前列表里就有这个ID' }); continue; }
+    /* 用**下标**遍历并按下标回写 —— 不能按 ID 找：
+     * 备选清单生成的"名字目标"ID 都是空串，按 ID 找会把所有待解析目标
+     * 全都写到同一个（第 0 个）目标上（这是个已修的真 bug）。 */
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      if (!t || t.enabled === false) continue;
+      if (t.id && inList[normId(t.id)]) {
+        report.push({ id: t.id, label: t.label, action: 'keep', why: '当前列表里就有这个ID' });
+        continue;
+      }
       const cands = R.matchCoursesByName(list, { label: t.label, name: t.name, teacher: t.teacher, campus: t.campus, kch: t.kch });
-      /* 门槛来自配置（用户选择"更激进"：抢错能退课，错过就没了）。
-       * 默认 0.6/0.04 —— 比原来的 0.85/0.08 宽松得多，能救回更多"像但不够像"的目标。 */
-      const pick = R.pickBestMatch(cands, {
-        minScore: Number((KX.snapshot().engine || {}).autoResolveMinScore) || 0.6,
-        minGap: Number((KX.snapshot().engine || {}).autoResolveMinGap) || 0.04
+      /* 门槛来自配置（用户选择"更激进"：抢错能退课，错过就没了）；
+       * allowFallback = 相似度不够也采用最像的那个（最大兜底）。 */
+      const pick = R.pickWithFallback(cands, {
+        minScore: minScore,
+        minGap: minGap,
+        allowFallback: allowFallback
       });
+      const isFallback = !!pick.fallback;
       if (!pick.ok) {
         report.push({
           id: t.id, label: t.label, action: 'manual', reason: pick.reason,
@@ -2333,34 +2358,41 @@
       }
       const b = pick.best;
       if (!dryRun) {
-        const idx = (cfg.targets || []).findIndex(function (x) { return normId(x.id) === normId(t.id); });
-        if (idx >= 0) {
-          const patch = { targets: cfg.targets.slice() };
-          patch.targets[idx] = Object.assign({}, patch.targets[idx], {
-            id: b.row.id,
-            label: t.label || b.row.name,
-            name: b.row.name,
-            teacher: b.row.teacher,
-            campus: b.row.campus,
-            kch: t.kch || b.row.code || ''
-          });
-          await KX.save({ targets: patch.targets });
-        }
+        targets[i] = Object.assign({}, t, {
+          id: b.row.id,
+          label: t.label || b.row.name,
+          name: t.name || b.row.name,
+          teacher: t.teacher || b.row.teacher,
+          campus: t.campus || b.row.campus,
+          kch: t.kch || b.row.code || '',
+          resolvedAt: Date.now(),
+          resolvedScore: Math.round(b.score * 100) / 100,
+          resolvedFallback: isFallback
+        });
       }
       changed++;
+      if (isFallback) fallbackCount++;
       report.push({
-        id: t.id, label: t.label, action: dryRun ? 'would-change' : 'changed',
-        to: b.row.id, toName: b.row.name, toTeacher: b.row.teacher, score: Math.round(b.score * 100) / 100, why: b.why
+        id: t.id, label: t.label || b.row.name, action: dryRun ? 'would-change' : 'changed',
+        fallback: isFallback,
+        to: b.row.id, toName: b.row.name, toTeacher: b.row.teacher,
+        score: Math.round(b.score * 100) / 100, why: b.why
       });
     }
 
     if (!dryRun && changed) {
-      log('warn', '按课程名重新解析了 ' + changed + ' 个目标的ID（教学班代码变了）——'
-        + report.filter(function (r) { return r.action === 'changed'; })
-          .map(function (r) { return (r.label || r.id) + ' → ' + r.to; }).join('；'));
+      await KX.save({ targets: targets });
+      log('warn', '按课程名解析了 ' + changed + ' 个目标的ID'
+        + (fallbackCount ? '（其中 ' + fallbackCount + ' 个是**最大兜底**：相似度不够高也采用了最像的）' : '')
+        + ' —— ' + report.filter(function (r) { return r.action === 'changed'; })
+          .map(function (r) { return (r.label || r.id) + '→' + r.toName + '(' + r.score + ')' + (r.fallback ? '兜底' : ''); })
+          .slice(0, 6).join('；'));
     }
     const manual = report.filter(function (r) { return r.action === 'manual'; }).length;
-    return { ok: true, dryRun: dryRun, total: targets.length, changed: changed, manual: manual, report: report };
+    return {
+      ok: true, dryRun: dryRun, total: targets.length, changed: changed, manual: manual,
+      fallback: fallbackCount, report: report
+    };
   }
 
   /* ============================================================
@@ -2488,22 +2520,27 @@
     }
   }
 
-  /** 自动按课程名把"查不到的"目标找回（跨年兜底，用户需求："新一年选课的时候自动监控
-   *  和选择监控列表里模糊匹配的课"）。
+  /** 自动按课程名把目标匹配成今年的教学班ID（用户要的"进选课页自动搞定"）。
    *
-   *  触发点：轮询/全量列表里**查不到某个目标**时（说明它的教学班ID变了或不在这一页），
-   *  用当前列表按「课程名+教师+校区」模糊匹配；置信度高的自动改ID（然后就能正常监控/提交了），
-   *  存疑的只提示你在面板上选 —— 宁可让你点一下，也不要抢错课。
+   *  三个触发点：
+   *   ① 有"还没有ID"的目标（来自备选清单）→ **立刻处理，不受节流**
+   *   ② 轮询/全量列表里查不到某个目标（教学班代码每年会变）
+   *   ③ 直接进选课页/自动开始时
    *
-   *  为什么必须用**当前**列表而不是档案：档案是去年的，ID 全是旧的；要跨年找回，
-   *  必须拿今年服务器实际返回的列表来匹配。没有列表时先做一次全量查询（几分钟才一次，不费请求）。
+   *  匹配策略：按「课程名+教师+校区」算相似度，分数够就采用；
+   *  **不够也采用最像的那个（最大兜底）** —— 用户明确要求"抢错了可以退课，比模糊不到更好"。
+   *  关掉兜底（engine.autoResolveFallback=false）就退回"存疑不动、留给人工选"。
    */
   let lastAutoResolveAt = 0;
   async function autoResolveTargets(reason) {
     const cfg = KX.snapshot();
     if (cfg.engine.autoResolve === false) return { ok: false, skipped: true };
+    /* 「还没有ID的目标」不处理就一个请求都发不出去 → 必须立刻做，不受节流限制 */
+    const pending = (cfg.targets || []).filter(function (t) {
+      return t && t.enabled !== false && !String(t.id || '').trim();
+    });
     const everyMs = clamp(Number(cfg.engine.autoResolveEveryMs) || 600000, 60000, 3600000);
-    if (Date.now() - lastAutoResolveAt < everyMs) return { ok: false, skipped: 'throttled' };
+    if (!pending.length && Date.now() - lastAutoResolveAt < everyMs) return { ok: false, skipped: 'throttled' };
     lastAutoResolveAt = Date.now();
 
     let rows = boardFull.length ? boardFull : (board.length ? board : []);
@@ -2516,12 +2553,12 @@
       await saveArchive(rows, '自动解析目标时顺带归档').catch(function () { });
       if (globalThis.KXPanel && KXPanel.mounted) KXPanel.board(boardFull, boardFullAt, { full: true });
     }
+    if (!rows.length) return { ok: false, error: '这一轮没拿到课程列表（可能还没到选课时间）' };
     const r = await resolveTargetsByName({ rows: rows, why: reason || '自动解析' });
     if (r && r.ok && r.changed) {
-      notify('已按课程名自动找回目标', r.changed + ' 个目标的ID已更新（教学班代码变了）：'
-        + r.report.filter(function (x) { return x.action === 'changed'; })
-          .map(function (x) { return (x.label || x.id) + '→' + x.toName; }).slice(0, 3).join('、')
-        + (r.changed > 3 ? ' 等' : ''), false);
+      notify('已自动匹配到今年的课程', r.changed + ' 门课已匹配到教学班ID'
+        + (r.fallback ? '（其中 ' + r.fallback + ' 个为最大兜底匹配）' : '')
+        + '，开始抢课。', false);
     }
     if (r && r.ok && r.manual) {
       log('warn', '有 ' + r.manual + ' 个目标按课程名匹配**存疑**（同名多班或找不到足够像的）——'
@@ -2656,6 +2693,32 @@
       + (changed.length ? '更新了 ' + changed.join('、') : '内容有变动')
       + '　保留了你的目标列表（' + ((cur.targets || []).length) + ' 个）与调速设置。');
     return { ok: true, applied: true, hash: hash, changed: changed };
+  }
+
+  /**
+   * 备选清单 → 目标（首次进页面自动做，不需要手动操作）。
+   *
+   * 用户要的明年流程："先预备选档案里的今年课 → 点页面登陆 → 直接进入选课页面
+   * 查找模糊课程或相似课程最大兜底加入监控 → 开始自动选课（不需要第一次手动操作）"。
+   *
+   * 这个函数负责第一步：把「备选清单」（只有课程名，跨年/跨电脑都能带走）
+   * 自动变成本次要监控的目标。ID 留空，等选课页能拉到课表时由
+   * resolveTargetsByName 模糊匹配成真 ID。
+   *
+   * 只在**当前没有任何目标**时做，绝不动你已有的清单。
+   */
+  async function seedTargetsFromWishlist() {
+    const cfg = KX.snapshot();
+    const wl = Array.isArray(cfg.wishlist) ? cfg.wishlist : [];
+    if (!wl.length) return { ok: true, seeded: 0, why: '备选清单是空的' };
+    if ((cfg.targets || []).length) return { ok: true, seeded: 0, why: '已有目标，不动' };
+    const targets = KX.wishlistToTargets(wl);
+    if (!targets.length) return { ok: true, seeded: 0, why: '备选清单里没有有效的课程名' };
+    await KX.save({ targets: targets });
+    log('ok', '备选清单已自动生效：' + targets.length + ' 门课进入监控（现在还没有教学班ID）——'
+      + '进入选课页后会自动按课程名匹配今年的班级，然后开始抢。');
+    notify('已按备选清单准备监控', targets.length + ' 门课已加入监控，进选课页后自动匹配并开抢。', false);
+    return { ok: true, seeded: targets.length };
   }
 
   /* ============================================================
@@ -2888,6 +2951,41 @@
       return r;
     },
     resolveTargets: resolveTargetsByName,
+    /* 备选清单（跨年/跨电脑带走"想选哪些课"的唯一载体 —— 教学班 ID 每年都变） */
+    wishlist: function () { return ((KX.snapshot().wishlist) || []).slice(); },
+    addWishlist: async function (items) {
+      const cur = (KX.snapshot().wishlist) || [];
+      const seen = {};
+      cur.forEach(function (w) { const k = R.normCourseName((w && (w.name || w.label)) || ''); if (k) seen[k] = 1; });
+      const add = [];
+      (items || []).forEach(function (it) {
+        const name = String((it && (it.name || it.label)) || '').trim();
+        if (!name) return;
+        const k = R.normCourseName(name);
+        if (seen[k]) return;                       // 同名只留一份
+        seen[k] = 1;
+        add.push({
+          name: name,
+          teacher: String((it && it.teacher) || '').trim(),
+          campus: String((it && it.campus) || '').trim(),
+          code: String((it && (it.code || it.kch)) || '').trim(),
+          addedAt: Date.now()
+        });
+      });
+      if (!add.length) return { ok: true, added: 0, total: cur.length, skipped: (items || []).length };
+      const next = cur.concat(add);
+      await KX.save({ wishlist: next });
+      log('ok', '备选清单 +' + add.length + ' 门（共 ' + next.length + ' 门）：'
+        + add.map(function (w) { return w.name; }).join('、')
+        + '　—— 明年/换电脑后会自动变成监控目标并按课程名匹配班级。');
+      return { ok: true, added: add.length, total: next.length };
+    },
+    clearWishlist: async function () {
+      await KX.save({ wishlist: [] });
+      log('warn', '备选清单已清空');
+      return { ok: true };
+    },
+    seedFromWishlist: seedTargetsFromWishlist,
     autoResolveTargets: autoResolveTargets,
     /* 项目 archives/ 目录里的档案（随扩展打包，一键读取） */
     listBundledArchives: listBundledArchives,
@@ -3000,6 +3098,7 @@
     await loadLearnedTokens();
     await loadArchive();      // 课程档案（离线可用：选课未开时也能在面板上挑目标）
     await loadRememberedArchives();   // 记住过的 archives/ 文件名（不用索引工具也能列出）
+    await seedTargetsFromWishlist();  // 备选清单 → 监控目标（新电脑上"零手动"的第一步）
     setRecording(true);
 
     KX.subscribe(function () { /* 配置变化时刷新面板 */ if (globalThis.KXPanel && KXPanel.mounted) KXPanel.status(snapshotStatus()); });
@@ -3016,6 +3115,8 @@
             KXApp.configSource().then(function (c) {
               if (globalThis.KXPanel && KXPanel.configSource) KXPanel.configSource(c);
             }).catch(function () { });
+            // 备选清单（档案页显示"跨年清单"）
+            if (globalThis.KXPanel && KXPanel.wishlist) KXPanel.wishlist(KXApp.wishlist());
             // 把本地课程档案推给面板：离线/未登录/选课未开时，「档案」页照样能看和挑课
             if (archive.rows.length) KXPanel.archive(archive, archiveAsRows());
             /* 自动把"项目 archives/ 里的档案列表"推给面板 —— 不用用户先点一次「重新扫描」 */

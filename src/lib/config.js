@@ -29,6 +29,13 @@
        * 例：["jwxt.example.edu.cn", "xk.example.edu.cn"] */
       sites: [],
 
+      /* 备选清单：只有课程名/教师/校区（**没有教学班ID**）。
+       * 教学班 ID 每年都变，所以跨年/跨电脑能带走的只有这些稳定信息 ——
+       * 明年在新电脑上装好扩展后，插件会自动把它变成「按名字监控」的目标，
+       * 等选课页能拉到课表时再模糊匹配成今年的真 ID（最大兜底）。
+       * 例：[{ name: "研究生心理成长", teacher: "", campus: "" }] */
+      wishlist: [],
+
       /* 工作标签页：引擎跑在这个标签页里（同源页面才能带上 Cookie / SameSite） */
       worker: {
         autoOpen: true,
@@ -586,6 +593,35 @@
   }
 
   /**
+   * 把「备选清单」变成「按名字监控的目标」（纯函数，便于自测）。
+   *
+   * 为什么需要：教学班 ID 每年都变（形如 20261-101-A0162101001-1785413134156），
+   * 所以**跨年、跨电脑**能带过去的只有"课程名"这类稳定信息。备选清单就是它的载体：
+   * 先在档案里挑好课 → 存成备选清单（只有名字/教师/校区）→ 明年在新电脑上装好扩展，
+   * 插件自动把它变成「按名字监控」的目标，等选课页能拉到课表时再匹配成真 ID。
+   *
+   * 生成的 target 里 `id` 是**空串** —— 引擎据此认出"这个目标还没有教学班ID"，
+   * 从而触发按课程名自动匹配，而不是拿空 ID 去发请求。
+   */
+  function wishlistToTargets(wishlist) {
+    return (wishlist || [])
+      .map(function (w) {
+        const name = String((w && (w.name || w.label)) || '').trim();
+        return {
+          id: '',                                  // 空 = 待解析（不是错误状态）
+          label: String((w && w.label) || name).trim(),
+          name: name,
+          teacher: String((w && w.teacher) || '').trim(),
+          campus: String((w && w.campus) || '').trim(),
+          kch: String((w && (w.kch || w.code)) || '').trim(),
+          enabled: true,
+          fromWishlist: true
+        };
+      })
+      .filter(function (t) { return t.name; });
+  }
+
+  /**
    * 把「项目里的配置文件」与「浏览器里存的配置」合并成最终生效的配置（纯函数，便于自测）。
    *
    * 用途：扩展配置存在浏览器里，而配置文件在项目目录里 —— 不合并的话，
@@ -597,6 +633,8 @@
    *   · 保留**你的**：targets（选课清单，绝不能被文件冲掉）、
    *     engine（你在面板上调的速率/开关；按 key 合并，文件里的新键仍会补进来）、
    *     notify / debug（通知偏好、收集器地址，属于本地环境）
+   *   · wishlist（备选清单）：本地有就用本地的，**本地为空时用文件里的**
+   *     —— 这正是"新电脑装好就自动带着去年挑好的课"的关键（种子语义）
    */
   function mergeBundledConfig(fileCfg, storedCfg) {
     const file = fileCfg || {};
@@ -606,6 +644,8 @@
     out.engine = Object.assign({}, file.engine || {}, keep.engine || {});
     out.notify = keep.notify || file.notify;
     out.debug = keep.debug || file.debug;
+    const localWl = Array.isArray(keep.wishlist) ? keep.wishlist : [];
+    out.wishlist = localWl.length ? localWl : (Array.isArray(file.wishlist) ? file.wishlist : []);
     return out;
   }
 
@@ -745,6 +785,7 @@
     getByPath,
     aggregatePush,
     mergeBundledConfig,
+    wishlistToTargets,
     authEstimate,
     authAnchorDecision,
     isHardTimeoutDisproved,

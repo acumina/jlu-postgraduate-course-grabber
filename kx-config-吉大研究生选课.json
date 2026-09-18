@@ -13,14 +13,14 @@
   },
   "engine": {
     "_note": "高速档：发包最小间隔 150ms（单独看最多 400/分钟）+ 每分钟上限 400 → 实际约 400/分钟。每轮并发 12 ≥ 目标数，保证一轮里每个目标都被提交一次（目标数超过 12 时靠轮转游标保证公平，不会饿死）。每个目标的频率 = 400 ÷ 目标数。想再快：把 minGapMs 和 maxReqPerMinute 一起调小/调大（minGapMs 下限 100ms，上限 3000/分钟）。",
-    "intervalMs": 300,
+    "intervalMs": 200,
     "jitterPct": 15,
     "maxConcurrent": 12,
     "submitOnHit": true,
     "confirmBeforeSubmit": false,
     "maxAttemptsPerTarget": 0,
-    "minGapMs": 150,
-    "maxReqPerMinute": 400,
+    "minGapMs": 100,
+    "maxReqPerMinute": 600,
     "backoff": {
       "onError": 2,
       "maxMs": 30000
@@ -46,7 +46,8 @@
     "_wishlistNote": "备选清单（wishlist）只记课程名/教师/校区，不记教学班ID —— ID 每年都变，只有课程名能跨年跨电脑带走。新电脑上装好扩展后，插件会自动把备选清单变成监控目标，进选课页拉到时课表后按课程名模糊匹配成今年的ID并开抢（autoResolveFallback=true 表示相似度不够也采用最像的那个：多抢一门只是退一次课，匹配不到就整轮错过）。",
     "expandAllMatches": true,
     "expandMax": 30,
-    "_expandNote": "用户要求（原话）：最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了。expandAllMatches=true：按课程名解析时，把够像的**全部**教学班都加入监控（羽毛球×12 就建 12 个目标，哪个先有名额就抢哪个）。expandMax=30：单个课程最多展开这么多教学班（防止某门课有几百个班把列表刷爆）。抢到之后**不会**自动停掉同名其它班（engine.autoStopSameName=false）——多抢到只是多退一次课，漏掉就整轮错过。"
+    "_expandNote": "用户要求（原话）：最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了。expandAllMatches=true：按课程名解析时，把够像的**全部**教学班都加入监控（羽毛球×12 就建 12 个目标，哪个先有名额就抢哪个）。expandMax=30：单个课程最多展开这么多教学班（防止某门课有几百个班把列表刷爆）。抢到之后**不会**自动停掉同名其它班（engine.autoStopSameName=false）——多抢到只是多退一次课，漏掉就整轮错过。",
+    "_rateNote": "用户要求：默认轮询速率上限过低 —— 至少做到首次抢课延迟足够低，反复轮询在 500ms 间隔以内。现在：intervalMs=200（一轮基础间隔）、minGapMs=100（两批发包最小间隔，远小于 500ms）、maxReqPerMinute=600、maxConcurrent=12、jitterPct=15。注意：浏览器会把后台标签页的定时器压到每分钟 1 次 —— 抢课期间必须让选课页保持可见。"
   },
   "query": {
     "_note": "enabled=false = 盲发模式：不查余量，直接高频提交 choiceCourse.do，用 rules.full 判断「容量已满」。query.url 仍保留，仅供「登录态体检」每 5 分钟发一次（那是读接口，用来确认会话是否还活着）。想切回先查后抢：把 enabled 改成 true，并把 pageSize 调到能覆盖全部课程（如 200）。",

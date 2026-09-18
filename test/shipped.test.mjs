@@ -368,8 +368,11 @@ test('README: 使用方式必须在最前面，原理类放到 docs/', () => {
 
 test('发布物: 引擎参数在合理范围（发布即用，不需要用户先调）', () => {
   const st = KX.deepMerge(KX.defaults(), cfg);
-  assert.ok(st.engine.intervalMs >= 300, '轮询间隔不能过小');
-  assert.ok(st.engine.maxReqPerMinute >= 60 && st.engine.maxReqPerMinute <= 3000, '每分钟上限要在闸门允许范围内');
+  assert.ok(st.engine.intervalMs >= 150, '轮询间隔不能过小（下限 150ms）');
+  assert.ok(st.engine.intervalMs <= 500, '用户要求：反复轮询间隔要在 500ms 以内（当前 ' + st.engine.intervalMs + '）');
+  assert.ok(st.engine.minGapMs <= 500, '两批发包间隔也要 <=500ms（当前 ' + st.engine.minGapMs + '）');
+  assert.ok(st.engine.maxReqPerMinute >= 300, '每分钟上限要够高（用户反馈原来偏低，当前 ' + st.engine.maxReqPerMinute + '）');
+  assert.ok(st.engine.maxReqPerMinute <= 3000, '但不能越界（闸门允许范围）');
   assert.ok(st.engine.minGapMs >= 100, '发包最小间隔要在闸门允许范围内');
   assert.ok(st.engine.maxConcurrent >= 1, '并发数至少 1');
   assert.equal(st.engine.submitOnHit, true, '要开启"命中就提交"（否则只监控不抢）');

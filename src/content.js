@@ -2239,9 +2239,17 @@
   async function uiClickFor(target) {
     const u = uiCfg();
     const key = String(target.kch || target.label || target.id || '').trim();
+    /* allowAny：找不到"本目标"那一行的选课按钮时（例如用户根本没有这门课），
+     * 允许点页面上**任意一门课**的按钮来取 token ——
+     * 否则会取不到 token 直接卡死（真实 bug：默认靠某门课取 token，没有它就跑不起来）。
+     * 想关掉：设置里 ui.tokenFromAnyRow = false。 */
+    const allowAny = ((KX.snapshot().ui || {}).tokenFromAnyRow) !== false;
     const report = await toPage({
       type: 'ui-click',
-      payload: { key: key, ui: { selectText: u.selectText, confirmText: u.confirmText, maxMs: u.maxMs, stepMs: u.stepMs } }
+      payload: {
+        key: key, allowAny: allowAny,
+        ui: { selectText: u.selectText, confirmText: u.confirmText, maxMs: u.maxMs, stepMs: u.stepMs }
+      }
     }, clamp(Number(u.maxMs) || 5000, 1000, 20000) * 4);
     if (!report) return { ok: false, error: '页面没有响应（桥接未就绪？刷新页面再试）' };
     return report;

@@ -550,6 +550,18 @@
       .then(function () {
         // ② 找目标那一行的「选课」按钮
         var found = findSelectButtonFor(p.key, ui);
+        /* 兜底（真实 bug：默认靠某一门课取 token，用户没有那门课时取不到 token，引擎直接停下）：
+         * 找不到本目标的按钮时，就点页面上**任意一门课**的「选课」按钮来取 token。
+         * 代价说清楚：那次点击是**真实提交**，可能顺手选中一门你没打算选的课 ——
+         * 所以日志会写明；不想要就去学校页面退掉（可逆），比"取不到 token 直接卡死"好得多。 */
+        if (!found.el && p.allowAny) {
+          var anyBtn = findButton(ui.selectText, { exclude: /取消/ });
+          if (anyBtn) {
+            say('没找到本目标的「' + ui.selectText + '」按钮（' + found.why + '）→ 改用页面上任意一门课的按钮取 token（这次点击是真实提交，可能顺手选中那门课，不想要就退掉）');
+            report.tokenDonorAny = true;
+            found = { el: anyBtn, why: '任意行兜底取 token' };
+          }
+        }
         report.found = !!found.el;
         report.detail = found.why;
         if (!found.el) { say('没找到按钮：' + found.why); throw new Error(found.why); }

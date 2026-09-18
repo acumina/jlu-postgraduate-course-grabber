@@ -2721,6 +2721,41 @@
     return { ok: true, seeded: targets.length };
   }
 
+  /**
+   * 全新安装时**自动配好生效站点**（用户要求："明年使用是直接从零开始，跳过加入白名单的流程"）。
+   *
+   * 两道保险：
+   *   ① 项目里的 kx-config-*.json 启动时自动应用（带 sites）—— 正常路径
+   *   ② 万一那个文件读不到（比如只拿了 src/ 里几个文件），就退回**内置预设**：
+   *      只要当前主机命中某个预设的 sites，就自动应用它
+   *
+   * 为什么值得单独做：默认白名单是空的，不配的话**面板根本不会出现在学校网站上**，
+   * 而"新电脑上第一眼什么都看不到"是最糟的体验（用户根本不知道该去设置里找什么）。
+   */
+  async function ensureSiteConfigured() {
+    const cur = KX.snapshot();
+    if (KX.siteAllowed(HOST, cur.sites)) return { ok: true, already: true };
+    const presets = globalThis.KXPresets || {};
+    const keys = Object.keys(presets);
+    if (!keys.length) return { ok: false, error: '没有内置预设' };
+    const hit = keys.find(function (k) {
+      const p = presets[k] || {};
+      return (p.sites || []).some(function (s) { return KX.siteAllowed(HOST, [s]); });
+    });
+    if (!hit) return { ok: false, error: '当前站点没有匹配的内置预设' };
+    const p = JSON.parse(JSON.stringify(presets[hit]));
+    /* 保留属于用户的东西：目标/备选清单/调速/通知/收集器 —— 只补"系统协议"那部分 */
+    p.targets = cur.targets || [];
+    p.wishlist = cur.wishlist || [];
+    p.engine = Object.assign({}, p.engine || {}, cur.engine || {});
+    p.notify = cur.notify || p.notify;
+    p.debug = cur.debug || p.debug;
+    await KX.replace(p);
+    log('ok', '这个站点还没有配置 → 已**自动应用内置预设「' + (p.name || hit) + '」**'
+      + '（生效站点 ' + (p.sites || []).join(', ') + '）—— 你不需要手动配白名单或点载入预设。');
+    return { ok: true, applied: hit };
+  }
+
   /* ============================================================
    * 面板门面：给 panel.js 用的 API
    * ============================================================ */
@@ -3085,6 +3120,9 @@
     /* 先把"项目里的配置文件"应用进来（变了才应用），再读配置 ——
      * 这样改了文件只要重载扩展就生效，不用手动导入。 */
     await autoApplyBundledConfig().catch(function () { });
+    /* 自动配好生效站点（读不到项目配置时退回内置预设）—— 保证面板一定出现在学校网站上，
+     * 新电脑"从零开始"时不需要任何手动配置步骤。 */
+    await ensureSiteConfigured().catch(function () { });
     const cfg = await KX.load(true);
     ACTIVE = KX.siteAllowed(HOST, cfg.sites);
     if (!ACTIVE) {
@@ -3126,6 +3164,24 @@
             }).catch(function () { KXPanel.bundled({ files: [] }, rememberedArchives.slice()); });
             log('sys', '站点已激活：' + HOST + '（面板' + (KXPanel.isVisible() ? '已展开' : '已收起') + '）');
             if (ui.tab) KXPanel.setTab(ui.tab);
+            /* ------------------------------------------------------------
+             * 「从零开始」引导：什么目标都没有 + 手上有课表档案
+             * → 直接把面板展开、切到「档案」页，让你在**登录页**就能把
+             *   去年的课表挑成愿望单（用户要求："在登陆页面弹出去年的课表加入愿望单"）。
+             * 只做一次（面板上点过"跳过"或加过课之后不再弹）。
+             * ------------------------------------------------------------ */
+            (function () {
+              const c = KX.snapshot();
+              const noTargets = !((c.targets || []).length);
+              const noWish = !((c.wishlist || []).length);
+              const hasArchive = !!(archive.rows || []).length;
+              if (!noTargets || !noWish || !hasArchive) return;
+              log('ok', '检测到这是一个"从零开始"的环境，而且手上有课表档案（' + archive.rows.length + ' 门）——'
+                + '已把面板切到「档案」页：勾选你想抢的课 → 点「加入备选清单」，明年/换电脑都能自动带着。');
+              if (KXPanel.onboarding) KXPanel.onboarding(true);
+              if (KXPanel.expand) KXPanel.expand();
+              KXPanel.setTab('archive');
+            })();
           });
         } catch (e) { KXPanel.mount(KXApp, {}); }
       }

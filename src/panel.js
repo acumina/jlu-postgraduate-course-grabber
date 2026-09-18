@@ -355,6 +355,18 @@ td .tag { display: inline-block; }
       + '<div class="hint">档案 = 本地保存的完整课程列表快照（含教师/时间/校区/容量/已选），'
       + '<b>不需要登录、不在选课期间也能看</b>。选课未开之前可以先把目标挑好；'
       + '下一年教学班代码变了，点「按课程名重新解析目标」就能用课程名把ID找回（模糊匹配，存疑的会让你选）。</div>'
+      /* 「从零开始」引导：新电脑/第一次用时，直接在这里告诉你该干什么 */
+      + (S.onboarding
+        ? '<div class="hint" style="border-left:3px solid #2c7;padding-left:8px;margin:6px 0">'
+          + '<b>① 先挑课（就是现在这一步）</b><br>'
+          + '下面是<b>去年保存的课表</b>（' + all.length + ' 门）。用上面的搜索框找你要抢的课 → 勾选 → '
+          + '点 <b>「加入备选清单（明年自动找回）」</b>。<br>'
+          + '备选清单只记课程名（不记教学班ID，因为ID每年都变）——'
+          + '明年在新电脑上装好扩展后，它会在你<b>登录并进入选课页</b>时自动匹配成今年的班级并开抢，'
+          + '<b>不需要你手动操作</b>。<br>'
+          + '<span class="small">（挑完点下面的「复制为配置片段」贴进项目配置文件，就能带到任何新电脑）</span>'
+          + '<div class="row"><button class="btn sm" data-act="onboard-skip">不用挑课，跳过</button></div></div>'
+        : '')
       + '<div class="row">'
       + '<button class="btn sm p" data-act="arch-download">导出为文件（下载）</button>'
       + '<button class="btn sm p" data-act="arch-pick">选择文件导入</button>'
@@ -1366,12 +1378,20 @@ td .tag { display: inline-block; }
         })).then(function (r) {
           alert('已加入备选清单：新增 ' + (r.added || 0) + ' 门，共 ' + (r.total || 0) + ' 门。'
             + ((r.skipped ? '\n（' + r.skipped + ' 门因为同名已存在而跳过）' : ''))
-            + '\n\n明年/换电脑后会自动生效 ✅');
+            + '\n\n明年/换电脑后会自动生效 ✅\n\n'
+            + '强烈建议点「复制为配置片段（贴进项目配置文件）」，把清单写进项目 —— '
+            + '这样新电脑上装好扩展、登录、进选课页，剩下的全自动。');
           S.archSel = new Set();
+          S.onboarding = false;      // 挑过了，引导关掉
           render();
         });
         break;
       }
+      case 'onboard-skip':
+        S.onboarding = false;
+        toast('已跳过挑课 —— 以后想加课随时可在「档案」页勾选');
+        render();
+        break;
       case 'wish-clear':
         if (!confirm('清空备选清单？（不影响现有的监控目标）')) break;
         app.clearWishlist().then(function () { render(); });
@@ -2035,6 +2055,10 @@ td .tag { display: inline-block; }
     setVisible: function (v) { S.ui.visible = !!v; persistUi(); render(); },
     isVisible: function () { return !!S.ui.visible; },
     toggle: function () { S.ui.visible = !S.ui.visible; persistUi(); render(); return S.ui.visible; },
+    /** 展开面板（"从零开始"引导时用：直接让你看到「档案」页去挑课） */
+    expand: function () { S.ui.visible = true; S.ui.collapsed = false; persistUi(); render(); },
+    /** 「从零开始」引导开关：档案页顶部显示醒目提示 */
+    onboarding: function (on) { S.onboarding = !!on; scheduleRender(); },
     setTab: function (t) { if (t) { S.ui.tab = t; render(); } },
     refresh: function () { render(); }
   };

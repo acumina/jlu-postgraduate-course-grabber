@@ -107,6 +107,77 @@ test('发布物: 课表档案可用（能浏览、能把档案行变成目标、
   assert.equal(pick.ok, true, '按发布配置的门槛应该能自动采用');
 });
 
+test('从零开始: 全新安装必须自动配好生效站点（跳过"加入白名单"这一步）', () => {
+  /* 用户要求："明年使用是直接从零开始，跳过加入白名单的流程"。
+   * 默认白名单是空的 → 不自动配的话，面板根本不会出现在学校网站上，
+   * 而"新电脑上第一眼什么都看不到"是最糟的体验。 */
+  const c = read('src/content.js');
+  assert.ok(/async function ensureSiteConfigured/.test(c), '要有 ensureSiteConfigured');
+  // 必须在算 ACTIVE 之前调用（否则这次访问就已经决定"不激活"了）
+  /* 注意：断言一律用**行首锚定** —— 普通正则会匹配到注释掉的代码，
+   * 这样反向验证（把调用注释掉）就抓不到问题（真实踩过：4 项全没抓到）。 */
+  const iEnsure = c.search(/^\s*await ensureSiteConfigured\(\)/m);
+  const iActive = c.indexOf('ACTIVE = KX.siteAllowed(HOST, cfg.sites)');
+  assert.ok(iEnsure > 0 && iActive > 0 && iEnsure < iActive, '自动配站点必须发生在 ACTIVE 判断之前，且不能被注释掉');
+  // 命中预设站点才应用，且**不能**动用户的数据
+  assert.ok(/KX\.siteAllowed\(HOST, \[s\]\)/.test(c), '要按当前主机匹配预设的 sites');
+  assert.ok(/p\.targets = cur\.targets \|\| \[\]/.test(c), '应用预设时必须保留用户已有目标');
+  assert.ok(/p\.wishlist = cur\.wishlist \|\| \[\]/.test(c), '应用预设时必须保留备选清单');
+  assert.ok(/p\.engine = Object\.assign\(\{\}, p\.engine \|\| \{\}, cur\.engine \|\| \{\}\)/.test(c),
+    '应用预设时用户调过的 engine 参数要优先');
+  // 预设在，且确实带着吉大站点
+  const presetKeys = Object.keys(globalThis.KXPresets || {});
+  assert.ok(presetKeys.length, '要有内置预设');
+  assert.deepEqual(globalThis.KXPresets[presetKeys[0]].sites, ['yjsxk.jlu.edu.cn'], '预设要带学校站点');
+});
+
+test('从零开始: 登录页要弹出"从去年课表挑课"的引导（不用自己找设置）', () => {
+  /* 用户要求："在登陆页面弹出去年的课表加入愿望单"。 */
+  const c = read('src/content.js');
+  /* 注意：这些调用是"带守卫的同一行"（if (KXPanel.onboarding) KXPanel.onboarding(true);）——
+   * 断言要贴着**真实写法**写，否则要么漏（注释掉也匹配），要么误报（行首锚定太严）。 */
+  assert.ok(/^\s*if \(KXPanel\.onboarding\) KXPanel\.onboarding\(true\);/m.test(c),
+    '内容脚本要打开引导（整行匹配：注释掉这行就会失败）');
+  assert.ok(/^\s*if \(KXPanel\.expand\) KXPanel\.expand\(\);/m.test(c),
+    '引导时要自动展开面板（用户第一眼就能看到）');
+  assert.ok(/^\s*KXPanel\.setTab\('archive'\);/m.test(c), '引导时要切到档案页（那里就是去年的课表）');
+  assert.ok(/noTargets && noWish && hasArchive/.test(c) || /!noTargets \|\| !noWish \|\| !hasArchive/.test(c),
+    '只在"零目标 + 零清单 + 有课表档案"时才弹');
+  const p = read('src/panel.js');
+  assert.ok(/S\.onboarding/.test(p), '面板要有 onboarding 状态');
+  assert.ok(/先挑课（就是现在这一步）/.test(p), '档案页顶部要有醒目的"先挑课"提示');
+  assert.ok(/data-act="onboard-skip"/.test(p), '要能跳过');
+  assert.ok(/^\s*expand: function/m.test(p), '面板要能被程序化展开');
+  assert.ok(/^\s*S\.onboarding = false;      \/\/ 挑过了/m.test(p), '挑过课之后要关掉引导（行首锚定）');
+  assert.ok(/^\s*S\.onboarding = false;$/m.test(p) || /onboard-skip[\s\S]{0,200}S\.onboarding = false/.test(p),
+    '「跳过」也要关掉引导');
+});
+
+test('README: 使用方式必须在最前面，原理类放到 docs/', () => {
+  /* 用户要求："github 首页说明太长了 将使用方式放在最开始的部分
+   * 其他部分如实现原理稍作简化放在后面"。 */
+  const md = read('README.md');
+  const lines = md.split('\n').length;
+  assert.ok(lines < 260, 'README 不该再是几百行（现在 ' + lines + ' 行）');
+  // 使用方式要先于任何原理性章节出现
+  const iUse = md.indexOf('## 怎么用');
+  assert.ok(iUse > 0 && iUse < 800, '「怎么用」必须出现在很靠前的位置');
+  ['## 怎么用', '## 它能做什么'].forEach((h) => assert.ok(md.includes(h), '缺少 ' + h));
+  // 原理类章节必须已经搬走
+  ['## 配置项速查表', '## 判定规则', '## engine 参数含义', '## 20 分钟硬超时的应对',
+    '## 目录结构', '## 调试技巧', '## 界面速查'].forEach((h) => {
+    assert.equal(md.includes(h), false, '这些长章节应该搬到 docs/ 了：' + h);
+  });
+  // 搬过去的文档要存在且真的有内容
+  ['docs/CONFIG.md', 'docs/HOW-IT-WORKS.md', 'docs/DEV.md', 'docs/CAPTURE.md'].forEach((f) => {
+    assert.ok(existsSync(resolve(ROOT, f)), '缺少 ' + f);
+    assert.ok(read(f).length > 1500, f + ' 内容太短，搬运可能失败');
+  });
+  // README 里要有指向它们的链接
+  assert.ok(/docs\/CONFIG\.md/.test(md), 'README 要链接配置文档');
+  assert.ok(/docs\/HOW-IT-WORKS\.md/.test(md), 'README 要链接原理文档');
+});
+
 test('发布物: 引擎参数在合理范围（发布即用，不需要用户先调）', () => {
   const st = KX.deepMerge(KX.defaults(), cfg);
   assert.ok(st.engine.intervalMs >= 300, '轮询间隔不能过小');

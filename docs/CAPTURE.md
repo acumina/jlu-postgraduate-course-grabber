@@ -237,3 +237,68 @@ curl.exe 'https://jwxt.example.edu.cn/xk/save' -X POST ^
 - [ ] 抢课期间打算怎么保持工作标签页可见（推荐弹窗的「小窗工作台」），以及掉线后你打算怎么快速重新登录（`session.loginUrl` 是否已记住）。
 
 最后再强调一次：抓包和模拟发包会与选课系统的使用条款、风控策略冲突，是否使用、如何使用，由你自己判断并承担全部后果。
+
+## 抓包自动落盘（不用手工导出 HAR，推荐）
+
+除了手工在 DevTools 里导出 HAR，更省事的做法是让插件把抓到的请求**自动写进项目目录**，之后直接读文件即可：
+
+```powershell
+node tools/collector.mjs          # 本地收集器，监听 http://127.0.0.1:8790（只绑本机）
+```
+
+1. 面板 → **设置 → 「本地抓包落盘」** → 收集器地址填 `http://127.0.0.1:8790/kx/captures` → 勾上 **自动推送抓包**（建议连 **运行日志** 一起推）
+2. 正常在页面上操作一次「选课」，抓到的请求会攒批（默认 1 秒）自动推过去；「抓包」页的 **推送** 按钮可随时手动推
+3. 落盘成三个文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `logs/kx-captures.jsonl` | 一条一行（`method` / `url` / `reqHeaders` / `reqBody` / `resp` / `status`），便于 grep 和逐条看 |
+| `logs/kx-captures.har` | 同一批数据合成的标准 HAR 1.2 |
+| `logs/kx-log.txt` | 插件推过来的运行日志（时间 + 级别 + 文本） |
+
+4. 直接生成配置（`.har` 和 `.jsonl` 两种都能吃）：
+
+```powershell
+node tools/har2config.mjs logs/kx-captures.har --host 你的域名 --out kx-config.json --pretty
+node tools/har2config.mjs logs/kx-captures.jsonl --out kx-config.json     # 也行
+```
+
+浏览器打开 `http://127.0.0.1:8790/` 能看到落盘条数、文件路径和最近 25 条请求。
+
+**安全性（这块是刻意设计的）**：
+
+- 收集器**只监听 `127.0.0.1`**，不对外暴露；`/kx/reset` 可一键清空。
+- **Cookie / Authorization / Set-Cookie 一律被抹掉**，而且是两侧各抹一次：插件推送前抹一次（凭据连 127.0.0.1 都不发），收集器落盘前再抹一次（防有人直接 POST 原始记录进来）。被抹掉的头会记录在 `_redactedHeaders` 里，不会让你以为抓包丢了。
+- background 里**硬性拒绝**非 `127.0.0.1` / `localhost` 的收集器地址，避免抓包被发到外部。
+- 这个功能**默认关闭**，地址留空就完全不启用，不影响抓包与抢课。
+
+**一个容易误会的点**：分析报告是**故意写到 stderr** 的，所以在 PowerShell 里会显示成红色错误文字。判断成功看是否出现 `已写出 …` 以及 `$LASTEXITCODE` 是否为 0，不是看颜色。
+
+## 用 HAR 自动生成配置
+
+如果你已经手工导出了 HAR（见 `docs/CAPTURE.md`），用法一样：
+
+```bash
+node tools/har2config.mjs capture.har --host jwxt.example.edu.cn --out kx-config.json
+```
+
+```bash
+node tools/har2config.mjs capture.har --host jwxt.example.edu.cn --out kx-config.json
+```
+
+真实用法（`node tools/har2config.mjs --help`）：
+
+```
+用法：node tools/har2config.mjs <capture.har> [--out kx-config.json] [--host jwxt.example.edu.cn] [--pretty]
+  <capture.har>  必填。DevTools → Network → 右键 → Save all as HAR with content
+  --out <file>   把生成的 kx_state JSON 写入文件（省略则打印到 stdout）
+  --host <host>  只分析该主机（多站点 HAR 时用），例：jwxt.example.edu.cn
+  --pretty       缩进 2 空格输出，并把分析报告以 _report 字段写进 JSON；-h/--help 显示本说明
+```
+
+它读 HAR、按分数给请求分类（提交 / 查询 / 其它），用「结构相同的多条请求做差分」找出「键相同、值不同」的选课 ID 字段并模板化成 `{{id}}`，输出一份与 `defaults()` 同构的配置：
+
+- **输出内容就是 `kx_state` 的值本身**，导入方式是 `chrome.storage.local.set({ kx_state: <文件内容> })`，或直接用面板设置页的「从下面的框导入」；用了 `--pretty` 时记得先删掉 `_report` 字段。
+- 分析报告始终写到 stderr（人类可读）；**`enabled` 固定输出为 `false`**，即生成后不会自动发包。
+- Cookie 不会被写进配置（浏览器自动携带），`Content-Length` / `Host` / `Origin` / `sec-*` 等头也会被过滤。
+- **自动推断必须人工核对**：`submit.rules` 的六条文案仍是通用默认正则（要换成你真实响应里的原文）、`targets[].label` 大多是空的、`query.parse` 的字段名要逐项确认。工具自己会在报告末尾列出「必须在扩展面板里人工确认/修改的字段」。

@@ -189,6 +189,70 @@ test('从零开始: 登录页要弹出"从去年课表挑课"的引导（不用�
     '「跳过」也要关掉引导');
 });
 
+test('全部命中都要: 按课程名匹配时，所有够像的教学班都必须一起加入监控', () => {
+  /* 用户要求（原话）："最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了"。
+   * 理由：同名教学班常有十几个（羽毛球×12、篮球×9），只挑一个等于把机会缩小到 1/12。 */
+  const rows = [
+    { id: 'A1', name: '篮球', teacher: '李某', raw: {} },
+    { id: 'A2', name: '篮球', teacher: '李某', raw: {} },
+    { id: 'A3', name: '篮球', teacher: '王某', raw: {} },
+    { id: 'B1', name: '知识产权法', teacher: '张某', raw: {} }
+  ];
+  const cands = R.matchCoursesByName(rows, { label: '篮球' });
+  assert.ok(cands.length >= 3, '三个同名教学班都该是候选');
+  const all = R.pickAllMatches(cands, { minScore: 0.6, max: 30, allowFallback: true });
+  assert.equal(all.ok, true);
+  assert.equal(all.rows.length, 3, '全部命中都要 → 3 个都采用（实际 ' + all.rows.length + '）');
+  assert.deepEqual(all.rows.map((r) => r.id).sort(), ['A1', 'A2', 'A3']);
+  assert.equal(all.fallback, false, '分数够时不该算兜底');
+  // 只有一个候选时也不炸
+  const one = R.pickAllMatches(R.matchCoursesByName([{ id: 'C1', name: '篮球', raw: {} }], { label: '篮球' }), { minScore: 0.6 });
+  assert.equal(one.rows.length, 1);
+  // 一个都不过门槛 → 兜底取最像的（allowFallback 默认开）
+  const fb = R.pickAllMatches(R.matchCoursesByName([{ id: 'D1', name: '知识产权法', raw: {} }], { label: '知识产权法律基础' }),
+    { minScore: 0.95, max: 30, allowFallback: true });
+  assert.equal(fb.ok, true);
+  assert.equal(fb.fallback, true, '不过门槛时应该是兜底（取最像的那个）');
+  assert.equal(fb.rows[0].id, 'D1');
+  // 关掉兜底 → 不采用
+  const noFb = R.pickAllMatches(R.matchCoursesByName([{ id: 'D1', name: '知识产权法', raw: {} }], { label: '知识产权法律基础' }),
+    { minScore: 0.95, max: 30, allowFallback: false });
+  assert.equal(noFb.ok, false);
+  // 上限保护（注意：matchCoursesByName 默认只给 5 个候选，调用方必须显式放大 —— 真实缺口）
+  const many = [];
+  for (let i = 0; i < 50; i++) many.push({ id: 'M' + i, name: '篮球', raw: {} });
+  assert.equal(R.matchCoursesByName(many, { label: '篮球' }).length, 5,
+    '默认只给 5 个候选（面板挑选用）');
+  const cands50 = R.matchCoursesByName(many, { label: '篮球' }, { max: 30 });
+  assert.equal(cands50.length, 30, '显式放大后才能拿到 30 个');
+  const capped = R.pickAllMatches(cands50, { minScore: 0.6, max: 10 });
+  assert.equal(capped.rows.length, 10, 'expandMax 要真的截断（给 30 个候选、上限 10）');
+  assert.equal(capped.truncated, true, '截断要标记出来');
+  assert.equal(capped.total, 30, 'total 要反映命中总数');
+  // 真实场景：羽毛球 12 个班必须全都拿到
+  const badminton = [];
+  for (let i = 0; i < 12; i++) badminton.push({ id: 'Y' + i, name: '羽毛球', raw: {} });
+  const all12 = R.pickAllMatches(R.matchCoursesByName(badminton, { label: '羽毛球' }, { max: 30 }), { minScore: 0.6, max: 30 });
+  assert.equal(all12.rows.length, 12, '羽毛球 12 个班要全部采用（不是只挑 1 个、也不是只 5 个）');
+});
+
+test('全部命中都要: 抢到一门之后不许停掉其它同名班（用户明确要求）', () => {
+  /* 用户原话："不能选一门抢就不抢其他的了"。
+   * 引擎里唯一会"停掉同名其它班"的机制是 autoStopSameName，默认必须是 false。 */
+  const cfg = JSON.parse(read('kx-config-吉大研究生选课.json'));
+  assert.equal(cfg.engine.autoStopSameName, false, '默认不许自动停掉同名其它班');
+  assert.equal(cfg.engine.keepPollingAfterSuccess, true, '成功之后要继续轮询');
+  assert.equal(cfg.engine.expandAllMatches, true, '默认要展开全部命中');
+  assert.ok(Number(cfg.engine.expandMax) >= 10, 'expandMax 要够大（当前 ' + cfg.engine.expandMax + '）');
+  const c = read('src/content.js');
+  assert.ok(/stopSameNameOthers\(cfg, t\)/.test(c), '保留开关（想开的人可以开）');
+  assert.ok(/autoStopSameName !== true\) return 0/.test(c), '但默认关闭：只有显式 true 才停');
+  // 解析时要真的追加新目标（而不是只改第一个）
+  assert.ok(/const extras = \[\];/.test(c), '解析器要有 extras 数组');
+  assert.ok(/targets\.concat\(extras\)/.test(c), '保存时要把追加的同名班一起写进去');
+  assert.ok(/sameNameGroup: true/.test(c), '追加的目标要标记来源（面板据此提示）');
+});
+
 test('从零开始: 只有"待解析目标"时引擎也必须能启动（否则解析永远触发不了）', () => {
   /* 死锁 bug：start() 原来只把"有 ID 的目标"算数 —— 而备选清单生成的目标 ID 是空的
    * （等着按课程名解析）→ start() 拒绝启动 → 不轮询 → cycle() 不跑 →

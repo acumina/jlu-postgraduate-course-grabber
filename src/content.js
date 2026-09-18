@@ -2402,6 +2402,8 @@
     const report = [];
     let changed = 0;
     let fallbackCount = 0;
+    let expandedCount = 0;
+    const extras = [];        // 同名/相似的其它教学班 → 追加成新目标（用户要求"全部都要"）
 
     /* 用**下标**遍历并按下标回写 —— 不能按 ID 找：
      * 备选清单生成的"名字目标"ID 都是空串，按 ID 找会把所有待解析目标
@@ -2413,25 +2415,44 @@
         report.push({ id: t.id, label: t.label, action: 'keep', why: '当前列表里就有这个ID' });
         continue;
       }
-      const cands = R.matchCoursesByName(list, { label: t.label, name: t.name, teacher: t.teacher, campus: t.campus, kch: t.kch });
-      /* 门槛来自配置（用户选择"更激进"：抢错能退课，错过就没了）；
-       * allowFallback = 相似度不够也采用最像的那个（最大兜底）。 */
-      const pick = R.pickWithFallback(cands, {
-        minScore: minScore,
-        minGap: minGap,
-        allowFallback: allowFallback
-      });
+      const expand = (cfg.engine || {}).expandAllMatches !== false;
+      const expandMax = Number((cfg.engine || {}).expandMax) || 30;
+      /* 关键：matchCoursesByName 默认只返回前 5 个候选（面板挑够用了），
+       * 但"全部命中都要"必须把它放大 —— 否则羽毛球×12 只能匹配到 5 个（真实缺口）。 */
+      const cands = R.matchCoursesByName(list,
+        { label: t.label, name: t.name, teacher: t.teacher, campus: t.campus, kch: t.kch },
+        { max: expand ? expandMax : 20 });
+      /* 用户要求（原话）："最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了"。
+       * 所以默认用 pickAllMatches：把够像的**全部**教学班都采用（羽毛球×12 就建 12 个目标，
+       * 哪个先有名额就抢哪个）。只想要一个（相似度最高的那个）就把
+       * engine.expandAllMatches 设为 false。 */
+      const pick = expand
+        ? R.pickAllMatches(cands, {
+            minScore: minScore,
+            max: expandMax,
+            allowFallback: allowFallback
+          })
+        : R.pickWithFallback(cands, { minScore: minScore, minGap: minGap, allowFallback: allowFallback });
       const isFallback = !!pick.fallback;
       if (!pick.ok) {
         report.push({
           id: t.id, label: t.label, action: 'manual', reason: pick.reason,
-          candidates: (pick.candidates || []).map(function (c) {
-            return { id: c.row.id, name: c.row.name, teacher: c.row.teacher, campus: c.row.campus, time: c.row.time, score: Math.round(c.score * 100) / 100, why: c.why };
+          candidates: (pick.scored || pick.candidates || []).map(function (c) {
+            return {
+              id: c.id || (c.row && c.row.id), name: c.name || (c.row && c.row.name),
+              teacher: c.teacher || (c.row && c.row.teacher), campus: c.campus || (c.row && c.row.campus),
+              score: c.score, why: c.why
+            };
           })
         });
         continue;
       }
-      const b = pick.best;
+      /* 统一成"行数组"：expand 模式可能一次命中多个教学班 */
+      const rowsPicked = pick.rows || [pick.best.row];
+      const scoredPicked = pick.scored || rowsPicked.map(function (r, k) {
+        return { id: r.id, name: r.name, teacher: r.teacher, campus: r.campus, score: k === 0 ? (pick.best && pick.best.score) : null };
+      });
+      const b = { row: rowsPicked[0], score: scoredPicked[0] && scoredPicked[0].score };
       if (!dryRun) {
         targets[i] = Object.assign({}, t, {
           id: b.row.id,
@@ -2441,12 +2462,37 @@
           campus: t.campus || b.row.campus,
           kch: t.kch || b.row.code || '',
           resolvedAt: Date.now(),
-          resolvedScore: Math.round(b.score * 100) / 100,
+          resolvedScore: b.score,
           resolvedFallback: isFallback
+        });
+        /* 其余命中的教学班 → 追加成新目标（同名组）。
+         * 已经在目标里的不再重复加（按教学班 ID 去重）。 */
+        const known = {};
+        targets.forEach(function (x) { if (x && x.id) known[normId(x.id)] = 1; });
+        extras.forEach(function (x) { if (x && x.id) known[normId(x.id)] = 1; });
+        rowsPicked.slice(1).forEach(function (r, k) {
+          if (known[normId(r.id)]) return;
+          known[normId(r.id)] = 1;
+          extras.push({
+            id: r.id,
+            label: (t.label || t.name || r.name) + '（同名第' + (k + 2) + '个班）',
+            name: t.name || r.name,
+            teacher: r.teacher || '',
+            campus: r.campus || '',
+            kch: t.kch || r.code || '',
+            enabled: true,
+            sameNameGroup: true,
+            sameNameOf: t.name || t.label || '',
+            resolvedAt: Date.now(),
+            resolvedScore: scoredPicked[k + 1] && scoredPicked[k + 1].score,
+            resolvedFallback: isFallback
+          });
         });
       }
       changed++;
       if (isFallback) fallbackCount++;
+      const extraCount = Math.max(0, rowsPicked.length - 1);
+      if (extraCount) expandedCount += extraCount;
       report.push({
         id: t.id, label: t.label || b.row.name, action: dryRun ? 'would-change' : 'changed',
         fallback: isFallback,
@@ -2455,18 +2501,21 @@
       });
     }
 
-    if (!dryRun && changed) {
-      await KX.save({ targets: targets });
+    if (!dryRun && (changed || extras.length)) {
+      const next = targets.concat(extras);
+      await KX.save({ targets: next });
       log('warn', '按课程名解析了 ' + changed + ' 个目标的ID'
+        + (extras.length ? '，并**把同名/相似的 ' + extras.length + ' 个教学班一起加入监控**'
+          + '（哪个先有名额就抢哪个 —— 多抢到只是多退一次课，漏掉就整轮错过）' : '')
         + (fallbackCount ? '（其中 ' + fallbackCount + ' 个是**最大兜底**：相似度不够高也采用了最像的）' : '')
         + ' —— ' + report.filter(function (r) { return r.action === 'changed'; })
-          .map(function (r) { return (r.label || r.id) + '→' + r.toName + '(' + r.score + ')' + (r.fallback ? '兜底' : ''); })
+          .map(function (r) { return (r.label || r.id) + '→' + r.toName + '(' + r.score + ')'; })
           .slice(0, 6).join('；'));
     }
     const manual = report.filter(function (r) { return r.action === 'manual'; }).length;
     return {
-      ok: true, dryRun: dryRun, total: targets.length, changed: changed, manual: manual,
-      fallback: fallbackCount, report: report
+      ok: true, dryRun: dryRun, total: targets.length + extras.length, changed: changed, manual: manual,
+      fallback: fallbackCount, expanded: extras.length, report: report
     };
   }
 
@@ -2632,6 +2681,7 @@
     const r = await resolveTargetsByName({ rows: rows, why: reason || '自动解析' });
     if (r && r.ok && r.changed) {
       notify('已自动匹配到今年的课程', r.changed + ' 门课已匹配到教学班ID'
+        + (r.expanded ? '，并把 ' + r.expanded + ' 个同名/相似教学班一起加入监控（哪个先有名额就抢哪个）' : '')
         + (r.fallback ? '（其中 ' + r.fallback + ' 个为最大兜底匹配）' : '')
         + '，开始抢课。', false);
     }

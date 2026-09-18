@@ -546,6 +546,9 @@
     const wantTeacher = String(t.teacher || '');
     const wantCampus = String(t.campus || '');
     const wantTime = String(t.time || '');
+    /* 默认只取前 5 个（面板里给人挑候选时够用了）。
+     * 但"全部命中都要"的场景必须放大：同名教学班可能有十几个（羽毛球×12）。
+     * 所以调用方要显式传 opts.max（解析器传 engine.expandMax）。 */
     const max = (opts && opts.max) || 5;
     const out = [];
     (rows || []).forEach(function (r) {
@@ -616,6 +619,47 @@
     return { ok: false, best: pick.best, candidates: list, fallback: false, reason: pick.reason };
   }
 
+  /**
+   * 「全部模糊命中都要」：把候选里所有够像的**全部**挑出来（按分数降序、按教学班去重）。
+   *
+   * 用户要求（原话）："最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了"。
+   * 理由很实在：同名教学班常有十几个（羽毛球×12、篮球×9），只挑一个等于把机会
+   * 缩小到 1/12；全都要，哪个先有名额就抢哪个。多抢一门只是多退一次课（可逆），
+   * 漏掉却是整轮错过（不可逆）。
+   *
+   * @param cands matchCoursesByName 的结果（已按分数降序）
+   * @param opts  { minScore, max, allowFallback }
+   * @returns { ok, rows, scored, fallback, truncated, total }
+   *   rows      = 要采用的教学班行（按分数降序、最多 max 个）
+   *   scored    = 带分数的明细（日志/面板用）
+   *   fallback  = true 表示"没有一个过门槛，采用最像的那一个"
+   *   truncated = true 表示命中的比 max 多、被截断了
+   */
+  function pickAllMatches(cands, opts) {
+    const o = opts || {};
+    const minScore = typeof o.minScore === 'number' ? o.minScore : 0.6;
+    const max = Math.max(1, Number(o.max) || 30);
+    const all = (cands || []).filter(function (c) { return c && c.row && c.row.id; });
+    const hit = all.filter(function (c) { return c.score >= minScore; });
+    const picked = hit.length ? hit : all.slice(0, 1);
+    const scored = picked.map(function (c) {
+      return {
+        id: c.row.id, name: c.row.name, teacher: c.row.teacher, campus: c.row.campus,
+        score: Math.round(c.score * 100) / 100, why: c.why
+      };
+    });
+    if (!scored.length) return { ok: false, rows: [], scored: [], fallback: false, truncated: false, total: 0 };
+    const fallback = !hit.length;
+    if (fallback && o.allowFallback === false) {
+      return { ok: false, rows: [], scored: scored, fallback: true, truncated: false, total: 0, reason: 'low-score' };
+    }
+    const kept = scored.slice(0, max);
+    const rows = kept.map(function (s) {
+      return all.find(function (c) { return c.row.id === s.id; }).row;
+    });
+    return { ok: true, rows: rows, scored: kept, fallback: fallback, truncated: scored.length > max, total: scored.length };
+  }
+
   globalThis.KXRules = {
     evalRule,
     jsonGet,
@@ -639,6 +683,7 @@
     nameSimilarity,
     matchCoursesByName,
     pickBestMatch,
-    pickWithFallback
+    pickWithFallback,
+    pickAllMatches
   };
 })();

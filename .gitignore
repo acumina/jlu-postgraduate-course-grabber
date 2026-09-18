@@ -26,6 +26,8 @@ desktop.ini
 # 提交信息的临时文件（git commit -F 用；别提交进去）
 .git-commit-msg.txt
 .*-commit-msg.txt
+.kx-msg.txt
+.kx-*.txt
 
 # 依赖（本项目零依赖，正常不会出现）
 node_modules/

@@ -189,6 +189,65 @@ test('从零开始: 登录页要弹出"从去年课表挑课"的引导（不用�
     '「跳过」也要关掉引导');
 });
 
+test('从零开始: 只有"待解析目标"时引擎也必须能启动（否则解析永远触发不了）', () => {
+  /* 死锁 bug：start() 原来只把"有 ID 的目标"算数 —— 而备选清单生成的目标 ID 是空的
+   * （等着按课程名解析）→ start() 拒绝启动 → 不轮询 → cycle() 不跑 →
+   * 不触发解析 → 那些目标永远拿不到 ID。用户报"进选课页不自动选课"的原因之一。 */
+  const c = read('src/content.js');
+  assert.ok(/const pendingTargets = \(cfg\.targets \|\| \[\]\)\.filter/.test(c),
+    'start() 里要单独识别"待解析目标"');
+  assert.ok(/if \(!targets\.length && !pendingTargets\.length\) \{/.test(c),
+    '只有"有ID目标 + 待解析目标"都为空时才算没有监控目标');
+  assert.ok(/!String\(t\.id \|\| ''\)\.trim\(\) && \(t\.name \|\| t\.label\)/.test(c),
+    '待解析目标的判定：没有ID + 有课程名');
+  assert.ok(/有 ' \+ pendingTargets\.length \+ ' 个目标还没有教学班ID/.test(c),
+    '要在日志里说明"待解析目标也算数、启动后会先匹配"');
+  // 触发解析的那段必须在 cycle() 内部、且在**把空 ID 目标过滤掉那一行之前**
+  const iCycle = c.indexOf('async function cycle()');
+  const iTrig = c.indexOf("autoResolveTargets('有目标还没有教学班ID");
+  const iFilter = c.indexOf('const targets = (cfg.targets || []).filter', iCycle);
+  assert.ok(iCycle > 0 && iFilter > iCycle, '找不到 cycle() 或它的目标过滤行');
+  assert.ok(iTrig > iCycle && iTrig < iFilter,
+    '待解析触发必须在 cycle() 里、且早于"把空 ID 目标过滤掉"那一行（否则永远解析不了）');
+});
+
+test('数据安全: 自动应用配置之前必须先 load —— 否则每次导航都会抹掉用户的监控目标', () => {
+  /* 真实事故（用户报："往年课加完监控，进选课页面突然没了"）：
+   *   snapshot() 的实现是 `cache || defaults()` —— **没 load 过就返回空默认值**。
+   *   boot 里原来先跑 autoApplyBundledConfig / ensureSiteConfigured，再 KX.load ——
+   *   于是这两个函数读到的"当前配置"是默认值（sites:[]、targets:[]）：
+   *     · ensureSiteConfigured 误判"这个站点还没配" → 每次都重新应用预设
+   *     · 应用时"保留用户数据"保留的是空数组 → 把空 targets 写回存储
+   *   因为每次页面加载都是全新的内存状态，**每次导航都会再抹一遍**。
+   * 这个测试把顺序钉死，并确认两个函数自己也会 load（不依赖调用方）。 */
+  const c = read('src/content.js');
+  const iBoot = c.indexOf('async function boot()');
+  assert.ok(iBoot > 0, '找不到 boot()');
+  const boot = c.slice(iBoot, iBoot + 1400);
+  const iLoad = boot.search(/^\s*await KX\.load\(true\);/m);
+  const iApply = boot.indexOf('autoApplyBundledConfig()');
+  const iSite = boot.indexOf('ensureSiteConfigured()');
+  assert.ok(iLoad > 0, 'boot 里必须显式 await KX.load(true)');
+  assert.ok(iLoad < iApply, 'KX.load 必须早于 autoApplyBundledConfig（否则读到空默认值）');
+  assert.ok(iLoad < iSite, 'KX.load 必须早于 ensureSiteConfigured');
+  // 两个函数内部也要自己 load（纵深防御：换个调用点也不会出事）
+  ['autoApplyBundledConfig', 'ensureSiteConfigured'].forEach((fn) => {
+    const at = c.indexOf('async function ' + fn);
+    assert.ok(at > 0, '找不到 ' + fn);
+    const seg = c.slice(at, at + 1200);
+    const firstUse = Math.min.apply(null, [
+      seg.indexOf('KX.snapshot()') === -1 ? 1e9 : seg.indexOf('KX.snapshot()'),
+      seg.indexOf('KX.replace(') === -1 ? 1e9 : seg.indexOf('KX.replace(')
+    ]);
+    const loadAt = seg.search(/KX\.load\(true\)/);
+    assert.ok(loadAt > 0 && loadAt < firstUse,
+      fn + ' 必须在用 snapshot/replace 之前自己 await KX.load(true)');
+  });
+  // 空 targets 绝不允许从这两条路径写出去
+  assert.ok(/out\.targets = keep\.targets \|\| \[\]/.test(read('src/lib/config.js')),
+    'mergeBundledConfig 必须保留传入的 targets');
+});
+
 test('静态检查: 不能有"未声明就使用"的标识符（真实事故的自动防线）', async () => {
   /* 真实事故：halt() 里写了 if (!loginRelated) —— 那个变量不存在，
    * 严格模式下每次停机都抛 ReferenceError，把"登录后自动继续"整条逻辑带崩。

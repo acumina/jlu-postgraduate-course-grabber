@@ -1646,7 +1646,16 @@ td .tag { display: inline-block; }
           + '· 查询接口：' + String((((p.query || {}).url) || '')).split('/').pop() + '\n'
           + '· 引擎只在 ' + ((p.worker || {}).urlRe || '任意页面') + ' 上运行\n'
           + '· UI 点击模式：' + (((p.ui || {}).mode) || 'hybrid') + '\n\n'
-          + '这会**整体覆盖**当前配置（目标列表会清空，你需要重新添加要抢的课）。继续吗？')) break;
+          + '会覆盖的只是**系统协议**部分（站点/接口/判定规则/页面限制）。\n'
+          + '你的**监控目标**、**备选清单**、调好的**速率**、通知与收集器偏好都会保留。\n\n'
+          + '继续吗？')) break;
+        /* 保留属于用户的数据：目标、备选清单、调速、通知/收集器偏好。
+         * 真实教训：以前这里会把目标列表一起清空 —— 现在没必要冒这个险
+         * （想删目标有专门的删除按钮）。 */
+        const curWanted = app.config();
+        p.targets = curWanted.targets || [];
+        p.wishlist = curWanted.wishlist || [];
+        p.engine = Object.assign({}, p.engine || {}, curWanted.engine || {});
         // 保留用户已有的「通知/收集器」偏好：那属于个人环境，不该被预设重置
         const cur = app.config();
         p.notify = cur.notify;

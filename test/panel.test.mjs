@@ -554,6 +554,24 @@ test('panel: 面板调用的每个 app 方法都必须在门面里存在（否�
   assert.deepEqual(missing, [], '面板调用了但门面里没有的方法：' + missing.join('、'));
 });
 
+test('panel: 任何"载入预设/导入配置"都不许悄悄清空监控目标', async () => {
+  /* 数据丢失级教训：boot 里的自动应用配置曾经因为"先应用后 load"把用户目标整批抹掉
+   * （用户报"进选课页目标突然没了"）。面板里这两条手动路径也要保住用户数据。 */
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const ROOT2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const src = fs.readFileSync(path.join(ROOT2, 'src/panel.js'), 'utf8');
+  const at = src.indexOf("case 'load-preset'");
+  assert.ok(at > 0, '找不到 load-preset 分支');
+  const seg = src.slice(at, at + 2200);
+  assert.ok(/p\.targets = curWanted\.targets \|\| \[\]/.test(seg), '载入预设必须保留监控目标');
+  assert.ok(/p\.wishlist = curWanted\.wishlist \|\| \[\]/.test(seg), '载入预设必须保留备选清单');
+  assert.ok(/p\.engine = Object\.assign\(\{\}, p\.engine \|\| \{\}, curWanted\.engine \|\| \{\}\)/.test(seg),
+    '载入预设时用户调过的速率优先');
+  assert.equal(/目标列表会清空/.test(seg), false, '提示语里不该再说"目标会清空"（行为已经变了）');
+});
+
 test('panel: 点击关键按钮不抛异常（打桩 app）', () => {
   KXPanel.setTab('captures');
   html();

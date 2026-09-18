@@ -1725,7 +1725,19 @@
       return { ok: false, error: msg };
     }
     const targets = (cfg.targets || []).filter(function (t) { return t && t.id && t.enabled !== false; });
-    if (!targets.length) return { ok: false, error: '还没有监控目标：在「目标」页添加要监测的选课ID' };
+    /* 「待解析目标」（来自备选清单：只有课程名、还没有教学班ID）也必须算有效目标 ——
+     * 否则会死锁：start() 拒绝启动 → 不轮询 → cycle() 不跑 → 不触发按课程名解析 →
+     * 这些目标永远拿不到 ID（用户报"进选课页不自动选课"的原因之一）。 */
+    const pendingTargets = (cfg.targets || []).filter(function (t) {
+      return t && t.enabled !== false && !String(t.id || '').trim() && (t.name || t.label);
+    });
+    if (!targets.length && !pendingTargets.length) {
+      return { ok: false, error: '还没有监控目标：在「目标」页添加要监测的选课ID' };
+    }
+    if (!targets.length && pendingTargets.length) {
+      log('info', '有 ' + pendingTargets.length + ' 个目标还没有教学班ID（来自备选清单）——'
+        + '启动后会先拉一次课表、按课程名匹配，匹配到就开始抢。');
+    }
 
     // 模板里用了 {{kch}} 就必须每个目标都填课程号，否则会发出 kch_id= 这样的空值，
     // 提交十有八九失败 —— 提前吼一声，别等白刷几十次才发现。
@@ -2742,7 +2754,9 @@
     } catch (e) { /* ignore */ }
     if (last === hash) return { ok: true, applied: false, hash: hash };
 
-    const cur = KX.snapshot();
+    /* 自己先把存储里的配置读进来（不依赖调用方）—— snapshot() 没 load 过时是空默认值，
+     * 用它做"保留用户数据"的依据会把空 targets 写回去（数据丢失级事故）。 */
+    const cur = await KX.load(true);
     const merged = mergeBundledConfig(fileCfg, cur);
     const changed = Object.keys(fileCfg).filter(function (k) {
       try { return JSON.stringify(fileCfg[k]) !== JSON.stringify(cur[k]); } catch (e) { return true; }
@@ -2799,7 +2813,11 @@
    * 而"新电脑上第一眼什么都看不到"是最糟的体验（用户根本不知道该去设置里找什么）。
    */
   async function ensureSiteConfigured() {
-    const cur = KX.snapshot();
+    /* 自己先把存储里的配置读进来 —— **不要依赖调用方先 load 过**：
+     * snapshot() 在没 load 过时返回的是空默认值（sites/targets 都空），
+     * 据此判断"当前站点没配"会误判，写回时还会把空 targets 一起写进存储
+     * （真实事故：用户"进选课页目标突然没了"）。 */
+    const cur = await KX.load(true);
     if (KX.siteAllowed(HOST, cur.sites)) return { ok: true, already: true };
     const presets = globalThis.KXPresets || {};
     const keys = Object.keys(presets);
@@ -3190,13 +3208,25 @@
    * 启动流程
    * ============================================================ */
   async function boot() {
-    /* 先把"项目里的配置文件"应用进来（变了才应用），再读配置 ——
+    /* ------------------------------------------------------------
+     * 顺序很重要（真实事故：用户"往年课加完监控，进选课页突然没了"）：
+     *
+     *   snapshot() 的实现是 `cache || defaults()` —— **没 load 过就返回空默认值**
+     *   （sites: []、targets: []）。而"自动应用项目配置"与"自动配站点"这两个函数
+     *   都要读"当前配置"来决定保留什么；如果它们在 load 之前跑，读到的就是空默认值，
+     *   于是把空的 targets 写回存储 → **用户刚加的监控目标被整批抹掉**。
+     *   又因为每次页面加载都是全新的内存状态，**每次导航都会再抹一遍**。
+     *
+     *   所以顺序必须是：先 load → 再自动应用 → 最后重新 load 一次（上面可能改了它）。
+     * ------------------------------------------------------------ */
+    await KX.load(true);
+    /* 把"项目里的配置文件"应用进来（内容变了才应用）——
      * 这样改了文件只要重载扩展就生效，不用手动导入。 */
     await autoApplyBundledConfig().catch(function () { });
     /* 自动配好生效站点（读不到项目配置时退回内置预设）—— 保证面板一定出现在学校网站上，
      * 新电脑"从零开始"时不需要任何手动配置步骤。 */
     await ensureSiteConfigured().catch(function () { });
-    const cfg = await KX.load(true);
+    const cfg = await KX.load(true);   // 上面两个可能改了配置 → 重新读一次
     ACTIVE = KX.siteAllowed(HOST, cfg.sites);
     if (!ACTIVE) {
       // 不在白名单：什么都不做，只保留上面那个极轻量的消息处理器

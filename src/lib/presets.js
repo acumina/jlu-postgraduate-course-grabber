@@ -12,6 +12,7 @@ globalThis.KXPresets = {
     "sites": [
       "yjsxk.jlu.edu.cn"
     ],
+    "wishlist": [],
     "worker": {
       "autoOpen": true,
       "url": "",

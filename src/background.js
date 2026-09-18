@@ -187,7 +187,7 @@ async function handle(msg, sender) {
         if (msg.mode === 'tab') {
           /* 关键：**先找有没有已经开着的登录页**。有就切过去，绝不再开一个 ——
            * 真实事故：登录快过期时一遍遍弹新标签页（页面级去重被"掉线→恢复"重置了），
-           * 用户反馈"疯狂弹出新页面"。判断"已开着"用路径比较（忽略查询串）。 */
+           * 实测反馈"疯狂弹出新页面"。判断"已开着"用路径比较（忽略查询串）。 */
           try {
             const all = await chrome.tabs.query({});
             const want = (function () {

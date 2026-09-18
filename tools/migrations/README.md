@@ -12,7 +12,7 @@
 | `add-burst-cap.mjs` | 加 `engine.burstCap`（令牌桶容量） | 标签页被隐藏时 Chrome 把定时器限到每分钟 1 次，需要一个可调的突发容量 |
 | `add-mine.mjs` | 加 `mine`（已选课程接口），删 `drop` | "选上没选上"要以**已选课程列表**为准（权威判据）；退课不做自动化 |
 | `disable-preopen-login.mjs` | `autoOpenLoginBeforeMs` 置 0 | 按推算值"提前打开登录页"会在没掉线时刷屏 |
-| `set-resolve-policy.mjs` | 设定模糊找回门槛与同名班策略 | 用户要求：门槛放低（抢错能退课），同名班一起抢、不自动收手（成功判定不可靠） |
+| `set-resolve-policy.mjs` | 设定模糊找回门槛与同名班策略 | 设计要求：门槛放低（抢错能退课），同名班一起抢、不自动收手（成功判定不可靠） |
 
 运行方式（在项目根目录）：
 

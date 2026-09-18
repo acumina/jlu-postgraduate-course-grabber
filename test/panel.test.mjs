@@ -205,7 +205,7 @@ test('panel: 「已选课程」区（服务器权威判据，退课仍是手动�
   /* 真实事故：15:28:31 选上了「研究生心理成长」（响应 {"msg":"<WID>","code":1}），
    * 插件只敢说"看起来成功了，请你去学校页面确认"—— 而抓包里早就有 loadStdCourseInfo
    * 这个能权威判断的接口。这个区就是它的 UI。
-   * 注意：退课**不做自动化**（用户明确要求），所以这里**不该**有退课按钮，
+   * 注意：退课**不做自动化**（设计要求），所以这里**不该**有退课按钮，
    * 但必须提示"退课前先把目标停掉，否则会被抢回来"。 */
   KXPanel.setTab('targets');
   KXPanel.mine([
@@ -475,7 +475,7 @@ test('panel: 设置页有速率预设，且能把「每目标多久轮一次」�
 });
 
 test('panel: 同名班策略 —— 一起抢，且默认**不**自动收手（成功判定不可靠）', async () => {
-  /* 用户原话："应该抢到同名的继续抢，因为你的成功判定并不可靠。"
+  /* 设计取舍："应该抢到同名的继续抢，因为你的成功判定并不可靠。"
    * 这个判断是对的：多抢一个同名班只是去退一次课（可逆），
    * 而误停一个同名班是丢掉课程（不可逆）。宁可多抢。
    * （真实教训：15:28 选上了研究生心理成长，响应是 {"msg":"<已选记录WID>","code":1}，
@@ -501,12 +501,12 @@ test('panel: 同名班策略 —— 一起抢，且默认**不**自动收手（�
 
   const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'kx-config-吉大研究生选课.json'), 'utf8'));
   assert.equal(cfg.engine.autoStopSameName, false, '默认必须是不自动收手');
-  assert.ok(cfg.engine.autoResolveMinScore <= 0.7, '模糊门槛按用户要求放低（当前 ' + cfg.engine.autoResolveMinScore + '）');
+  assert.ok(cfg.engine.autoResolveMinScore <= 0.7, '模糊门槛按设计要求放低（当前 ' + cfg.engine.autoResolveMinScore + '）');
   assert.ok(cfg.engine.autoResolveMinGap <= 0.05, '领先第二名门槛也放低（当前 ' + cfg.engine.autoResolveMinGap + '）');
 });
 
 test('panel: 每个 data-act 必须有对应的 case（否则点击静默无反应）', async () => {
-  /* 真实 bug（用户报"加监控点击没反应"）：档案页每行的按钮写的是
+  /* 真实 bug（实测反馈"加监控点击没反应"）：档案页每行的按钮写的是
    * data-act="arch-add"，但处理器里**只有** case 'add-target' ——
    * 点击落到 switch 的 default → 什么都不发生，也没有任何提示。
    * 之前的测试只检查"按钮存在"，没检查"按钮有人接"，于是这个漏洞活了很久。
@@ -556,7 +556,7 @@ test('panel: 面板调用的每个 app 方法都必须在门面里存在（否�
 
 test('panel: 任何"载入预设/导入配置"都不许悄悄清空监控目标', async () => {
   /* 数据丢失级教训：boot 里的自动应用配置曾经因为"先应用后 load"把用户目标整批抹掉
-   * （用户报"进选课页目标突然没了"）。面板里这两条手动路径也要保住用户数据。 */
+   * （实测反馈"进选课页目标突然没了"）。面板里这两条手动路径也要保住用户数据。 */
   const fs = await import('node:fs');
   const path = await import('node:path');
   const { fileURLToPath } = await import('node:url');

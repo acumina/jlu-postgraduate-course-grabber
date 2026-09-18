@@ -981,7 +981,7 @@ td .tag { display: inline-block; }
       + '<div class="grp"><div class="gt">配置导入 / 导出</div>'
       + (function () {
         /* 自动配置：启动时读项目里的配置文件，内容变了就自动应用（保留你的目标与调速）。
-         * 用户问过"这个配置json能自动配置吗" —— 这就是答案，这里显示状态并允许手动重应用。 */
+         * 有人问过"这个配置json能自动配置吗" —— 这就是答案，这里显示状态并允许手动重应用。 */
         const c = S.configSource || {};
         return '<div class="hint">配置来源：<b>项目里的配置文件</b> <code>' + esc(c.file || 'kx-config-*.json') + '</code>'
           + (c.appliedAt ? '　已于 ' + tstr(c.appliedAt) + ' 自动应用' : '　（还没应用过）')
@@ -1596,7 +1596,7 @@ td .tag { display: inline-block; }
       case 'add-target':
       /* 档案页每行那个「加监控」按钮 —— 真实 bug：按钮写的是 data-act="arch-add"，
        * 但这里**只有 add-target 分支**，于是点击落到 default → 什么都不发生
-       * （用户报"加监控点击没反应"）。两个名字都接住，并且加断言防止再犯：
+       * （实测反馈"加监控点击没反应"）。两个名字都接住，并且加断言防止再犯：
        * test/panel.test.mjs 会检查"每个 data-act 都有对应的 case"。 */
       case 'arch-add':
         app.addTarget(el.dataset.id, el.dataset.label, el.dataset.kch).then(function (r) {

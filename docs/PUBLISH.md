@@ -39,6 +39,9 @@ node tools/make-archive-index.mjs    # 重新生成课表档案索引
 ```
 
 - `kx-config-*.json` 里的 `targets` 应该为空数组
+- `wishlist`（**备选清单**）只有课程名/教师/校区，**没有教学班 ID** —— 它是"明年/新电脑
+  自动带着课"的载体，**默认保留**。连"想选哪些课"也不想公开的话：
+  `node tools/prepare-publish.mjs --clear-wishlist`
 - `archives/*.json` 是**学校公开课表**（只有课程/教师/时间/容量字段，无个人信息），可以一起开源
 - 你浏览器里的目标列表**不会**被清空 —— 应用配置时会保留本地 targets
 

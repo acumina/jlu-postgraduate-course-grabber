@@ -107,6 +107,42 @@ test('发布物: 课表档案可用（能浏览、能把档案行变成目标、
   assert.equal(pick.ok, true, '按发布配置的门槛应该能自动采用');
 });
 
+test('从零开始: 全新环境必须自动读项目里带的课表快照（否则弹窗永远不出现）', () => {
+  /* 真实 bug（用户在新电脑上踩到："没能实现第一次弹出历史选课表"）：
+   * loadArchive() 只读 chrome.storage，而新电脑上那个键是空的 ——
+   * 项目里带的 archives/*.json 从来没被自动读过，于是 archive.rows 是空的：
+   *   · 「档案」页空着，挑不了课
+   *   · "从零开始"引导的条件要求 hasArchive → 永远不弹
+   * 现在 boot 里会调 autoLoadBundledArchive() 把最近的一份快照读进来。 */
+  const c = read('src/content.js');
+  assert.ok(/async function autoLoadBundledArchive/.test(c), '要有 autoLoadBundledArchive');
+  assert.ok(/^\s*await autoLoadBundledArchive\(\)/m.test(c),
+    'boot 里必须真的调用它（整行匹配：注释掉会失败）');
+  assert.ok(/loadBundledArchive\(files\[0\]\.name\)/.test(c), '要复用按名字读取项目档案的逻辑');
+  assert.ok(/Number\(b\.at\) \|\| 0\) - \(Number\(a\.at\) \|\| 0\)/.test(c), '要取档案时间最新的一份');
+  // 顺序：必须在"引导判断"和"面板挂载"之前把档案准备好
+  const iLoad = c.search(/^\s*await autoLoadBundledArchive\(\)/m);
+  const iSeed = c.search(/^\s*await seedTargetsFromWishlist\(\)/m);
+  const iMount = c.indexOf('KXPanel.mount(KXApp, ui)');
+  const iOnboard = c.indexOf('const hasArchive');
+  assert.ok(iLoad > 0 && iSeed > iLoad, '自动读档案要在 seedTargetsFromWishlist 之前');
+  assert.ok(iLoad > 0 && iMount > iLoad, '自动读档案要在面板挂载之前（面板一挂就要显示课表）');
+  assert.ok(iLoad > 0 && iOnboard > iLoad, '自动读档案要在"从零开始"引导判断之前（否则条件不成立）');
+  // 已经有档案时不要覆盖（用户自己导入的更新档案优先）
+  assert.ok(/if \(\(archive\.rows \|\| \[\]\)\.length\) return \{ ok: true, skipped: '已有档案' \}/.test(c),
+    '已有档案时不能覆盖');
+});
+
+test('从零开始: 加完备选清单必须立刻变成监控目标（不用等下次刷新）', () => {
+  /* 真实体验问题：以前 addWishlist 只存清单，要等下次页面加载 boot 时才 seed，
+   * 用户会觉得"加了没反应"。 */
+  const c = read('src/content.js');
+  assert.ok(/const r = await seedTargetsFromWishlist\(\);/.test(c), 'addWishlist 里要立刻 seed');
+  assert.ok(/seeded: seeded/.test(c), '返回值要带上 seeded（面板可以据此提示）');
+  assert.ok(/^\s*autoResolveTargets\('备选清单刚生成目标'\)/m.test(c),
+    '生成目标后要立刻尝试解析一次（不必等轮询）');
+});
+
 test('从零开始: 全新安装必须自动配好生效站点（跳过"加入白名单"这一步）', () => {
   /* 用户要求："明年使用是直接从零开始，跳过加入白名单的流程"。
    * 默认白名单是空的 → 不自动配的话，面板根本不会出现在学校网站上，
@@ -151,6 +187,35 @@ test('从零开始: 登录页要弹出"从去年课表挑课"的引导（不用�
   assert.ok(/^\s*S\.onboarding = false;      \/\/ 挑过了/m.test(p), '挑过课之后要关掉引导（行首锚定）');
   assert.ok(/^\s*S\.onboarding = false;$/m.test(p) || /onboard-skip[\s\S]{0,200}S\.onboarding = false/.test(p),
     '「跳过」也要关掉引导');
+});
+
+test('静态检查: 不能有"未声明就使用"的标识符（真实事故的自动防线）', async () => {
+  /* 真实事故：halt() 里写了 if (!loginRelated) —— 那个变量不存在，
+   * 严格模式下每次停机都抛 ReferenceError，把"登录后自动继续"整条逻辑带崩。
+   * node --check 只查语法，查不出这种错；这个项目零依赖没有 eslint，
+   * 所以用 tools/lint-undefined.mjs 兜住（高精度 + 基线白名单）。 */
+  const { execFileSync } = await import('node:child_process');
+  const path = await import('node:path');
+  const fs2 = await import('node:fs');
+  const os = await import('node:os');
+  const { fileURLToPath } = await import('node:url');
+  const ROOT2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  /* 输出写进**临时文件**再读回来 —— 不用管道（受限沙箱禁止子进程开管道，
+   * 会在 4 项以外的环境里假失败；这个坑在 git-commit.mjs 里也踩过一次）。 */
+  const tmp = path.join(os.tmpdir(), 'kx-lint-' + process.pid + '.txt');
+  let code = 0;
+  try {
+    const fd = fs2.openSync(tmp, 'w');
+    try {
+      execFileSync('node', [path.join(ROOT2, 'tools/lint-undefined.mjs')], { cwd: ROOT2, stdio: ['ignore', fd, fd] });
+    } finally { fs2.closeSync(fd); }
+  } catch (e) {
+    code = typeof e.status === 'number' ? e.status : 1;
+  }
+  const out = fs2.existsSync(tmp) ? fs2.readFileSync(tmp, 'utf8') : '';
+  try { fs2.unlinkSync(tmp); } catch (e) { /* ignore */ }
+  assert.equal(code, 0, '存在可疑的未声明标识符：\n' + out);
+  assert.ok(/没有发现未声明就使用的标识符/.test(out), 'lint 应输出通过信息');
 });
 
 test('README: 使用方式必须在最前面，原理类放到 docs/', () => {

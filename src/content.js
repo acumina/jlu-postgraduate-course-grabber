@@ -402,6 +402,7 @@
   let keepAliveRecordLogged = false; // 保活突破记录只喊一次
   let lastEstimateProbeAt = 0;       // 「推定硬超时到点」的确认探测节流（只探测、绝不停机）
   let lastHaltAt = 0;                // 最近一次停机时刻（面板用来解释"实测速率为什么低"）
+  let lastHaltKind = '';             // 最近一次停机的种类（closed=还没到选课时间 → 要快速重试）
   let lastLostStallWarnAt = 0;       // 「掉线却长期没体检」的告警节流（防静默卡死）
   let lastProbeText = '';            // 最近一次体检结论的人话描述（面板直接显示）
   let uiFeedInFlight = false;        // 「UI 点击喂 token」是否正在进行（并发下只允许一个去点）
@@ -777,7 +778,7 @@
       recordSessionDeath(where || '请求');
       saveRuntime();
       if (running) {
-        halt('登录已掉线（' + auth.why + '），等待重新登录', true);
+        halt('登录已掉线（' + auth.why + '），等待重新登录', { urgent: true, sticky: false, kind: 'logout' });
       } else if (!alreadyLost) {
         /* 只在「刚刚变成掉线」时记一条：掉线后每 30 秒都会再探到 401，
          * 每次记一条的话日志会被同一件事刷满（真实事故：每 45 秒一条）。 */
@@ -938,7 +939,7 @@
         auth.state = 'suspect';
         auth.why = '连续 ' + authFailStreak + ' 次体检在网络层失败（' + why + '）';
         saveRuntime();
-        if (running) halt('登录态疑似失效：' + auth.why, true);
+        if (running) halt('登录态疑似失效：' + auth.why, { urgent: true, sticky: false, kind: 'logout' });
         else notify('登录态疑似失效', auth.why + '。请看一眼页面是不是提示未登录，需要的话重新登录一次。', true);
         if (globalThis.KXPanel && KXPanel.mounted) KXPanel.status(snapshotStatus());
         return r;
@@ -993,7 +994,7 @@
     const hint = (KX.snapshot().session || {}).loginUrl
       ? '（已记住登录页，点面板「打开登录页」即可）'
       : '（还不知道登录页地址：你登录一次后我就能从 Referer 里拿到，之后可以自动打开）';
-    if (running) halt('页面提示未登录：' + auth.why, true);
+    if (running) halt('页面提示未登录：' + auth.why, { urgent: true, sticky: false, kind: 'logout' });
     else notify('检测到已掉线', auth.why + ' 请重新登录，登录后会自动继续。' + hint, true);
     if (globalThis.KXPanel && KXPanel.mounted) KXPanel.status(snapshotStatus());
     return true;
@@ -1208,7 +1209,13 @@
             if (kind === 'captcha' || kind === 'logout' || kind === 'closed') {
               noteAuth({ status: 200, body: again.text, url: location.href }, location.href, 'UI 点击');
               setState(rt, 'blocked', 'UI 点击得到 ' + kind);
-              if (kind !== 'logout' || (cfg.engine.stopOn || {}).logout !== false) halt('UI 点击发现 ' + kind + '：' + again.text.slice(0, 80), true);
+              if (kind !== 'logout' || (cfg.engine.stopOn || {}).logout !== false) {
+                /* UI 点击发现验证码/掉线/未开放：
+                 *   验证码 → 粘性停机（必须你人工处理）
+                 *   掉线 / 未到选课时间 → 临时停机（条件恢复后自动继续） */
+                halt('UI 点击发现 ' + kind + '：' + again.text.slice(0, 80),
+                  { urgent: kind === 'captcha', sticky: kind === 'captcha', kind: kind });
+              }
               return kind;
             }
             setState(rt, 'retry', 'UI 点击结果未判定');
@@ -1357,17 +1364,17 @@
       case 'captcha':
         stats.halts++;
         setState(rt, 'blocked', '触发验证码');
-        if ((cfg.engine.stopOn || {}).captcha !== false) halt('触发验证码，已自动停止并等待你手工处理', true);
+        if ((cfg.engine.stopOn || {}).captcha !== false) halt('触发验证码，已自动停止并等待你手工处理', { urgent: true, sticky: true, kind: 'captcha' });
         else log('err', '⚠ ' + (t.label || t.id) + ' 触发验证码：' + head);
         return 'captcha';
       case 'logout':
         auth.state = 'lost';
         auth.why = '提交响应命中登录失效特征';
-        if ((cfg.engine.stopOn || {}).logout !== false) halt('登录态失效（' + head.slice(0, 80) + '）', true);
+        if ((cfg.engine.stopOn || {}).logout !== false) halt('登录态失效（' + head.slice(0, 80) + '）', { urgent: true, sticky: false, kind: 'logout' });
         return 'logout';
       case 'closed':
         setState(rt, 'blocked', '不在选课时间');
-        if ((cfg.engine.stopOn || {}).closed !== false) halt('系统提示不在选课时间（' + head.slice(0, 80) + '）', true);
+        if ((cfg.engine.stopOn || {}).closed !== false) halt('系统提示不在选课时间（' + head.slice(0, 80) + '）', { urgent: false, sticky: false, kind: 'closed' });
         return 'closed';
       case 'http':
         rt.failStreak++;
@@ -1639,28 +1646,50 @@
   /* ============================================================
    * 启动 / 停止 / 定时开抢
    * ============================================================ */
-  function halt(reason, urgent) {
-    const wasRunning = running;
-    running = false;
-    status = 'halted';
-    statusText = reason;
-    lastHaltAt = Date.now();       // 面板据此区分「速率低是因为停机」还是「被限流」
-    if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
-    if (wasRunning) stats.halts++;
-    // 只有「登录相关」的停机才自动恢复：验证码/未开放这类需要你亲自处理，
-    // 自动重启只会把请求继续打出去，反而更危险。
-    /* 主动停机（验证码/未开放/时间冲突这类）→ 把 enabled 置 false：
-     * 意味着"用户想让它跑"这个意图被撤回了，需要你处理完手动点启动。
-     * 登录相关停机则**保留 enabled=true** → 登录成功后自动继续（这是你要的"自动进行"）。 */
-    if (!loginRelated) setWantRunning(false);
-    saveRuntime();
-    if (urgent) notify('已自动停止', reason, true);
-    else log('warn', '引擎已停止：' + reason);
-    if (!loginRelated) {
-      log('warn', '处理完之后在面板上点「启动」即可继续；也可以给 engine.scheduleAt 设个定时开抢。');
+  /**
+   * 停机。
+   *
+   * @param reason 说明文字（会显示在面板和通知里）
+   * @param opts   { urgent?: boolean, sticky?: boolean }
+   *   sticky = true  → **撤回"想跑"的意图**（要你手工点启动才算数）：验证码、你主动停
+   *   sticky = false → **保留意图**，条件恢复后自动继续：登录失效、还没到选课时间
+   *
+   * 真实 bug（用户在新电脑上踩到，两个现象都是它引起的）：
+   *   这里原来判断的是一个**根本不存在的变量** `loginRelated`（第二个参数名其实是 urgent）
+   *   —— 严格模式下每次停机都抛 ReferenceError，于是后面的 saveRuntime()、面板刷新、
+   *   以及"登录后自动继续"的判断**全都没执行**。表现就是"登录了也不自动开始抢课"。
+   *   现在改成显式选项，并且整段包 try/catch：停机是关键时刻的兜底逻辑，
+   *   它自己再抛异常会把整个会话看门狗带崩。
+   */
+  function halt(reason, opts) {
+    const o = (opts === true) ? { urgent: true } : (opts || {});
+    const sticky = o.sticky !== false;        // 默认粘性（保守：不确定就别偷偷继续发包）
+    const urgent = !!o.urgent;
+    try {
+      const wasRunning = running;
+      running = false;
+      status = 'halted';
+      statusText = reason;
+      lastHaltAt = Date.now();       // 面板据此区分「速率低是因为停机」还是「被限流」
+      lastHaltKind = o.kind || (sticky ? 'manual' : 'transient');
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+      if (wasRunning) stats.halts++;
+      if (sticky) setWantRunning(false);
+      saveRuntime();
+      if (urgent) notify('已自动停止', reason, true);
+      else log('warn', '引擎已停止：' + reason);
+      if (sticky) {
+        log('warn', '处理完之后在面板上点「启动」即可继续；也可以给 engine.scheduleAt 设个定时开抢。');
+      } else {
+        log('warn', '这是**临时**停机（' + (o.kind === 'closed' ? '还没到选课时间' : '登录相关')
+          + '）—— 条件恢复后会自动继续，不需要你手动点启动。');
+      }
+      if (globalThis.KXPanel && KXPanel.mounted) KXPanel.status(snapshotStatus());
+      broadcastStatus();
+    } catch (e) {
+      /* 兜底：绝不让停机逻辑本身把调用方（会话看门狗/引擎）带崩 */
+      try { log('err', '停机过程出错（已忽略）：' + ((e && e.message) || e)); } catch (e2) { /* ignore */ }
     }
-    if (globalThis.KXPanel && KXPanel.mounted) KXPanel.status(snapshotStatus());
-    broadcastStatus();
   }
 
   /** 当前页面允许跑引擎吗（worker.urlRe 限制）。
@@ -2269,6 +2298,40 @@
     return archive;
   }
 
+  /**
+   * 全新环境里档案是空的 —— 但**项目里带了课表快照**（archives/*.json）。
+   * 自动把最近的那一份读进来。
+   *
+   * 这是修一个真 bug：loadArchive() 只读 chrome.storage，而新电脑上那个键是空的，
+   * 于是「档案」页永远空着、"从零开始"引导也永远不弹（它的条件要求有档案）——
+   * 用户在新电脑上就是这么踩到的（"没能实现第一次弹出历史选课表"）。
+   */
+  async function autoLoadBundledArchive() {
+    if ((archive.rows || []).length) return { ok: true, skipped: '已有档案' };
+    let idx = null;
+    try {
+      idx = await listBundledArchives();
+    } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+    if (!idx || idx.ok === false || !((idx.files || []).length)) {
+      return { ok: false, error: (idx && idx.error) || '项目里没有课表快照' };
+    }
+    // 取"档案时间"最新的那一份（at 来自 archives/index.json）
+    const files = idx.files.slice().sort(function (a, b) {
+      return (Number(b.at) || 0) - (Number(a.at) || 0);
+    });
+    const r = await loadBundledArchive(files[0].name);
+    if (r && r.ok) {
+      log('ok', '这是全新环境（本地还没有档案）→ 已**自动读取项目里带的课表快照**：'
+        + files[0].name + '（' + r.count + ' 门）—— 「档案」页现在就能挑课了。');
+      notify('已自动载入课表快照', '项目里带的课表（' + r.count + ' 门）已载入，'
+        + '可以在「档案」页勾选想抢的课加入备选清单。', false);
+    } else {
+      log('warn', '自动读取项目里的课表快照失败：' + ((r && r.error) || '未知')
+        + '（也可以到「档案」页点「选择文件夹…」手工选 archives 目录）');
+    }
+    return r;
+  }
+
   /** 把当前拿到的课程列表存成档案（归一化成稳定结构，便于跨年对比/导入导出） */
   async function saveArchive(list, why) {
     const rows = (list || []).map(function (r) {
@@ -2718,6 +2781,9 @@
     log('ok', '备选清单已自动生效：' + targets.length + ' 门课进入监控（现在还没有教学班ID）——'
       + '进入选课页后会自动按课程名匹配今年的班级，然后开始抢。');
     notify('已按备选清单准备监控', targets.length + ' 门课已加入监控，进选课页后自动匹配并开抢。', false);
+    /* 立刻尝试解析一次（不必等轮询/等进选课页 —— 查询接口在站内任何页面都能用）。
+     * 解析成功就说明这些课今年的教学班ID已经拿到，进选课页就能直接发提交。 */
+    autoResolveTargets('备选清单刚生成目标').catch(function () { });
     return { ok: true, seeded: targets.length };
   }
 
@@ -3013,7 +3079,14 @@
       log('ok', '备选清单 +' + add.length + ' 门（共 ' + next.length + ' 门）：'
         + add.map(function (w) { return w.name; }).join('、')
         + '　—— 明年/换电脑后会自动变成监控目标并按课程名匹配班级。');
-      return { ok: true, added: add.length, total: next.length };
+      /* 关键：**立刻**把新加的课变成监控目标（如果现在一个目标都没有）——
+       * 以前要等下次页面加载才生效，用户会觉得"加了没反应"（新电脑上真实踩到）。 */
+      let seeded = 0;
+      try {
+        const r = await seedTargetsFromWishlist();
+        seeded = (r && r.seeded) || 0;
+      } catch (e) { /* ignore */ }
+      return { ok: true, added: add.length, total: next.length, seeded: seeded };
     },
     clearWishlist: async function () {
       await KX.save({ wishlist: [] });
@@ -3135,6 +3208,9 @@
     await loadRuntime(loginFlow);
     await loadLearnedTokens();
     await loadArchive();      // 课程档案（离线可用：选课未开时也能在面板上挑目标）
+    /* 全新环境：本地档案是空的，但项目里带了课表快照 —— 自动读进来。
+     * 不读的话「档案」页永远空着、"从零开始"引导也永远不弹（用户在新电脑上就是这么踩到的）。 */
+    await autoLoadBundledArchive().catch(function () { });
     await loadRememberedArchives();   // 记住过的 archives/ 文件名（不用索引工具也能列出）
     await seedTargetsFromWishlist();  // 备选清单 → 监控目标（新电脑上"零手动"的第一步）
     setRecording(true);

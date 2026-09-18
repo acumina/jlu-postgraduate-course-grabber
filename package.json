@@ -36,7 +36,9 @@
     "scan": "node tools/scan-secrets.mjs",
     "preset": "node tools/make-preset.mjs",
     "archive-index": "node tools/make-archive-index.mjs",
-    "prepare-publish": "node tools/prepare-publish.mjs"
+    "prepare-publish": "node tools/prepare-publish.mjs",
+    "lint": "node tools/lint-undefined.mjs",
+    "ship": "node tools/lint-undefined.mjs && node test/all.mjs && node tools/scan-secrets.mjs && node tools/git-check.mjs"
   },
   "engines": {
     "node": ">=18"

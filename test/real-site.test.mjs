@@ -323,8 +323,32 @@ test('回归: 进入页面就自动开始 —— 只由 enabled 一条规则决�
     '首次使用（键不存在）默认 true —— 用户要求"点入页面就自动进行"');
   assert.equal(/KX\.save\(\{ enabled:/.test(src), false, '不该再往配置文件里写 enabled（那是运行时意图）');
   // 主动停机必须撤回意图，否则重载后又自己跑起来
-  assert.ok(/if \(!loginRelated\) setWantRunning\(false\)/.test(src),
-    '验证码/未开放这类主动停机要撤回意图');
+  assert.ok(/if \(sticky\) setWantRunning\(false\)/.test(src),
+    '验证码这类主动停机要撤回意图（halt 的 sticky 选项）');
+  /* 真实 bug（用户在新电脑上踩到）：halt() 里判断的是一个**根本不存在的变量**
+   * `loginRelated`（第二个参数名其实是 urgent）→ 严格模式下每次停机都抛 ReferenceError →
+   * 后面的 saveRuntime / 面板刷新 / "登录后自动继续"全都没执行 →
+   * 表现就是"登录了也不自动开始抢课"。
+   * 这个测试原来断言的正是那行坏代码（等于把 bug 钉住了），现在改成钉正确行为。 */
+  const codeLines = src.split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l));
+  assert.equal(codeLines.some((l) => /loginRelated/.test(l)), false,
+    '代码里不能再出现 loginRelated（不存在的变量；只允许写在注释里当事故记录）');
+  // 每个停机调用点都必须显式说明"要不要撤回意图"（允许和下一行合并写）
+  const srcLines = src.split('\n');
+  srcLines.forEach((l, i) => {
+    if (/halt\(/.test(l) && !/^\s*\*/.test(l) && !/function halt/.test(l) && !/halt\(\)/.test(l)) {
+      const together = l + (srcLines[i + 1] || '');
+      assert.ok(/sticky:/.test(together), '第 ' + (i + 1) + ' 行的 halt 调用必须显式写 sticky:');
+    }
+  });
+  // 语义：验证码 = 粘性（必须人工处理）；掉线 / 未到选课时间 = 临时（条件恢复后自动继续）
+  assert.ok(/sticky: true, kind: 'captcha'/.test(src), '验证码停机必须是粘性的');
+  assert.ok(/kind: 'logout' \}\)/.test(src), '掉线停机要标记 logout（临时，登录后自动继续）');
+  assert.ok(/sticky: false, kind: 'closed'/.test(src),
+    '「未到选课时间」必须是临时停机 —— 否则明年窗口一开也不会自动开始（用户的真实场景）');
+  assert.ok(/function halt\(reason, opts\)/.test(src), 'halt 要接受选项对象');
+  assert.ok(/const sticky = o\.sticky !== false;/.test(src), 'sticky 默认保守为 true');
+  assert.ok(/停机过程出错/.test(src), '停机逻辑本身要包 try/catch（它在关键路径上，抛异常会把看门狗带崩）');
   /* 曾经踩坑的三个标记：代码里必须彻底删除
    * （注释里保留它们的名字是有意的 —— 那是三次事故的记录，交给下一个人看） */
   assert.equal(/resumePending\s*[=:]/.test(src), false, 'resumePending 的代码用法已删除（它是三次事故的共同点）');

@@ -378,6 +378,7 @@ td .tag { display: inline-block; }
       + '<button class="btn sm p" data-act="arch-pick">选择文件导入</button>'
       + '<button class="btn sm" data-act="arch-copy">复制到剪贴板</button>'
       + '<button class="btn sm" data-act="arch-resolve">按课程名重新解析目标</button>'
+      + '<button class="btn sm p" data-act="sim-next-year">模拟明年（测试模糊匹配能不能生效）</button>'
       + (all.length ? '<button class="btn sm d" data-act="arch-clear">清空档案</button>' : '')
       + '</div>'
       + '<div class="row"><input type="file" data-act="arch-file" accept=".json,application/json" style="font-size:10px"></div>'
@@ -1431,6 +1432,23 @@ td .tag { display: inline-block; }
             ? '已用备选清单生成 ' + r.seeded + ' 个监控目标（还没有ID）。\n\n'
               + '进选课页后会自动按课程名匹配今年的班级并开始抢 ✅'
             : '没有生成：' + ((r && r.why) || '未知原因') + '\n\n（只有当前一个目标都没有时才会生成）');
+          render();
+        });
+        break;
+      case 'sim-next-year':
+        /* 用"明年样式"的假 ID 跑一遍完整匹配（不动真实数据）—— 回答"怎么测明年的模糊匹配" */
+        app.simulateNextYear({}).then(function (r) {
+          if (!r || r.ok === false) { alert('模拟失败：' + ((r && r.error) || '未知')); return; }
+          const lines = (r.detail || []).map(function (d) {
+            if (!d.ok) return '· ' + d.label + '：❌ ' + (d.reason || '未命中');
+            const top = (d.top || []).map(function (t) { return t.name + '／' + (t.teacher || '?') + '（' + t.score + '）'; }).join('　');
+            return '· ' + d.label + '：✅ 命中 ' + d.classes + ' 个班' + (d.fallback ? '［兜底］' : '') + '　最像的：' + top;
+          }).join('\n');
+          alert('【模拟明年】用假的教学班ID（20271-…）跑了一遍完整匹配：\n\n'
+            + '目标 ' + r.total + ' 个 → 命中 ' + r.hit + '（其中兜底 ' + r.fallback + '）'
+            + (r.expanded ? '，同名班一起加入 ' + r.expanded + ' 个' : '') + '，未命中 ' + r.miss + '\n'
+            + '（用它模拟的课表共 ' + r.fakeRows + ' 条）\n\n' + lines
+            + '\n\n真实数据没有被改动 —— 这只是拿档案造了一份"明年课表"来试匹配。');
           render();
         });
         break;

@@ -620,6 +620,36 @@
   }
 
   /**
+   * 造一份「明年的课表」用于**离线测试模糊匹配**（纯函数，便于自测）。
+   *
+   * 为什么需要：教学班 ID 每年都变；而今年 ID 还有效时，解析走的是"ID 直接命中"这条路，
+   * **模糊匹配那段代码根本不会被执行** —— 用户问得对："如何测试明年的模糊匹配能生效？"
+   * 这个函数把档案里的教学班 ID 都改造成"明年样式"（换学期段 + 确定性伪随机尾段），
+   * 名字/教师/校区/时间保持不变；拿它跑一遍匹配，就等于跑了一遍明年。
+   *
+   * @param rows 今年的课表行（来自档案）
+   * @param opts { semester='20271', salt=1 }
+   */
+  function simulateNextYearRows(rows, opts) {
+    const o = opts || {};
+    const semester = String(o.semester || '20271');
+    const salt = Number(o.salt) || 1;
+    return (rows || []).map(function (r, i) {
+      const id = String((r && r.id) || '');
+      const parts = id.split('-');
+      let next;
+      if (parts.length >= 4) {
+        /* 20261-101-A0162101001-1785413134156 → 20271-101-A0162101001-<新尾段> */
+        const tail = String(Math.abs(Number(parts[3]) || 1) + 7919 * (i + 1) * salt);
+        next = [semester].concat(parts.slice(1, 3)).concat([tail]).join('-');
+      } else {
+        next = semester + '-' + (i + 1) + '-' + id.replace(/^\d+-/, '');
+      }
+      return Object.assign({}, r, { id: next, _realId: id });
+    });
+  }
+
+  /**
    * 「全部模糊命中都要」：把候选里所有够像的**全部**挑出来（按分数降序、按教学班去重）。
    *
    * 用户要求（原话）："最大兜底选课要选择全部模糊命中的课程，不能选一门抢就不抢其他的了"。
@@ -684,6 +714,7 @@
     matchCoursesByName,
     pickBestMatch,
     pickWithFallback,
-    pickAllMatches
+    pickAllMatches,
+    simulateNextYearRows
   };
 })();

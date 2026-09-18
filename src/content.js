@@ -3120,6 +3120,49 @@
       return r;
     },
     resolveTargets: resolveTargetsByName,
+    /** 「模拟明年」：拿"明年样式"的假 ID 跑一遍完整匹配，**不动任何真实数据**。
+     *  回答"如何测试明年的模糊匹配能生效" —— 今年 ID 还有效时，解析走的是 ID 直接命中，
+     *  模糊匹配那段代码根本不会被执行。 */
+    simulateNextYear: async function (opts) {
+      const cfg = KX.snapshot();
+      const base = (opts && opts.rows) || archiveAsRows();
+      if (!base.length) return { ok: false, error: '档案是空的 —— 先在「档案」页刷新一次' };
+      const fake = R.simulateNextYearRows(base, {
+        semester: (opts && opts.semester) || '20271', salt: (opts && opts.salt) || 1
+      });
+      const eng = cfg.engine || {};
+      const minScore = Number(eng.autoResolveMinScore) || 0.6;
+      const expandMax = Number(eng.expandMax) || 30;
+      const allowFallback = eng.autoResolveFallback !== false;
+      const targets = (cfg.targets || []).filter(function (t) { return t && t.enabled !== false; });
+      const out = [];
+      let hit = 0, fallback = 0, miss = 0, expanded = 0;
+      targets.forEach(function (t) {
+        const cands = R.matchCoursesByName(fake,
+          { label: t.label, name: t.name, teacher: t.teacher, campus: t.campus, kch: t.kch },
+          { max: expandMax });
+        const pick = R.pickAllMatches(cands, { minScore: minScore, max: expandMax, allowFallback: allowFallback });
+        if (!pick.ok) {
+          miss++;
+          out.push({ label: t.label || t.name || t.id, ok: false, reason: '一个都没匹配到（档案里没有它？）' });
+          return;
+        }
+        hit++;
+        if (pick.fallback) fallback++;
+        expanded += Math.max(0, pick.rows.length - 1);
+        out.push({
+          label: t.label || t.name || t.id, ok: true, fallback: pick.fallback,
+          classes: pick.rows.length, top: pick.scored.slice(0, 3)
+        });
+      });
+      log('ok', '【模拟明年】用 ' + fake.length + ' 条"明年课表"跑了一遍匹配：目标 ' + targets.length
+        + ' 个 → 命中 ' + hit + '（兜底 ' + fallback + '）'
+        + (expanded ? '，同名班一起加入 ' + expanded + ' 个' : '') + '，未命中 ' + miss + '。');
+      return {
+        ok: true, fakeRows: fake.length, total: targets.length,
+        hit: hit, fallback: fallback, miss: miss, expanded: expanded, detail: out
+      };
+    },
     /* 备选清单（跨年/跨电脑带走"想选哪些课"的唯一载体 —— 教学班 ID 每年都变） */
     wishlist: function () { return ((KX.snapshot().wishlist) || []).slice(); },
     addWishlist: async function (items) {
